@@ -1,6 +1,8 @@
 const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, EmbedBuilder, ButtonBuilder, ButtonStyle, ComponentType } = require('discord.js');
 const config = require('../../config.json');
 const replacePost = require('./replacePost');
+const fetchPost = require('./fetchPost');
+const api = require('./api');
 
 /**
  * Creates and shows a modal for inputting decline reasons
@@ -284,6 +286,35 @@ async function processAccept(interaction, client) {
             contentType: originalMessage.attachments.first().contentType || 'image/png'
         };
 
+        // Check if the post is deleted
+        const postResult = await fetchPost.getPost(postId);
+        const isPostDeleted = postResult.post?.flags?.deleted;
+
+        if (isPostDeleted) {
+            // Post is deleted, show undelete button instead of proceeding with replacement
+            const undeleteButton = new ButtonBuilder()
+                .setCustomId(`undelete_post:${postId}:${interaction.user.id}`)
+                .setLabel('UNDELETE POST')
+                .setStyle(ButtonStyle.Success)
+                .setEmoji('🔄');
+
+            const undeleteActionRow = new ActionRowBuilder()
+                .addComponents(undeleteButton);
+
+            // Update the original message to show undelete option
+            await originalMessage.edit({
+                content: `⚠️ Post #${postId} is currently deleted. Please click the button below to undelete it before proceeding with the replacement.`,
+                components: [undeleteActionRow]
+            });
+
+            await interaction.editReply({
+                content: `📋 Post #${postId} is currently deleted. An 'UNDELETE POST' button has been added to the request message. Please click it first to undelete the post, then I can proceed with the replacement.`,
+                ephemeral: true
+            });
+
+            return;
+        }
+
         // Process the replacement using the replacePost utility
         const replacementResult = await replacePost.processReplacement(
             postId,
@@ -437,6 +468,139 @@ async function replyToOriginalMessageAndDisableButtons(channel, messageId, postI
     }
 }
 
+/**
+ * Handles the undeletion of a post and then processes the replacement
+ * @param {Object} interaction - The button interaction
+ * @param {string} postId - The post ID to undelete
+ * @param {string} moderatorId - The ID of the moderator who initiated the undeletion
+ */
+async function handleUndeletePost(interaction, postId, moderatorId) {
+    await interaction.deferReply({ ephemeral: true });
+
+    try {
+        // Get the replacement request channel
+        if (!config.channels || !config.channels.replacementRequestChannel) {
+            return interaction.editReply({
+                content: '❌ Replacement request channel is not configured. Please contact a bot administrator.',
+                ephemeral: true
+            });
+        }
+
+        const channel = await interaction.client.channels.fetch(config.channels.replacementRequestChannel);
+        
+        if (!channel) {
+            return interaction.editReply({
+                content: '❌ Could not find the replacement request channel. Please contact a bot administrator.',
+                ephemeral: true
+            });
+        }
+
+        // Find the original request message
+        const messages = await channel.messages.fetch({ limit: 50 });
+        const originalMessage = messages.find(msg =>
+            msg.embeds.length > 0 &&
+            msg.embeds[0].title === '🔄 Replacement Request' &&
+            msg.embeds[0].fields.some(field =>
+                field.name === 'Post ID' && field.value === postId
+            )
+        );
+
+        if (!originalMessage) {
+            return interaction.editReply({
+                content: `❌ Could not find the original request message for post #${postId}.`,
+                ephemeral: true
+            });
+        }
+
+        // Attempt to undelete the post
+        const undeleteResult = await replacePost.handlePostUndeletion(postId);
+
+        if (!undeleteResult.success) {
+            throw new Error(undeleteResult.error || 'Failed to undelete post');
+        }
+
+        // Extract the file URL from the original message
+        let fileUrl = null;
+        if (originalMessage.attachments.size > 0) {
+            const attachment = originalMessage.attachments.first();
+            fileUrl = attachment.url;
+        }
+
+        if (!fileUrl) {
+            return interaction.editReply({
+                content: `❌ Could not find the replacement file in the original request for post #${postId}.`,
+                ephemeral: true
+            });
+        }
+
+        // Create a mock attachment object for the replacePost utility
+        const imageAttachment = {
+            url: fileUrl,
+            name: originalMessage.attachments.first().name,
+            contentType: originalMessage.attachments.first().contentType || 'image/png'
+        };
+
+        // Process the replacement using the replacePost utility
+        const replacementResult = await replacePost.processReplacement(
+            postId,
+            imageAttachment,
+            'Discord Bot replacement',
+            {
+                asPending: true,  // Set as_pending to true by default
+                source: undefined // No source provided
+            }
+        );
+
+        if (!replacementResult.success) {
+            throw new Error(replacementResult.error || 'Replacement failed');
+        }
+
+        // Send confirmation DM to the original request user (if we can get it)
+        const originalEmbed = originalMessage.embeds[0];
+        const requestedByField = originalEmbed.fields.find(field => field.name === 'Requested by');
+        let originalUserId = null;
+        if (requestedByField) {
+            const userIdMatch = requestedByField.value.match(/\((\d+)\)/);
+            if (userIdMatch) {
+                originalUserId = userIdMatch[1];
+            }
+        }
+
+        if (originalUserId) {
+            try {
+                const sendAcceptDM = require('./handleDecline').sendAcceptDM;
+                await sendAcceptDM(interaction.client, originalUserId, postId);
+            } catch (dmError) {
+                console.error(`Failed to send DM to user ${originalUserId}:`, dmError);
+            }
+        }
+        
+        // Reply to the original message and disable buttons
+        const replySent = await replyToOriginalMessageAndDisableButtons(channel, originalMessage.id, postId, moderatorId);
+
+        // Send confirmation to the moderator
+        let confirmationMessage = `✅ Post #${postId} has been undeleted and the replacement has been processed successfully!`;
+        if (undeleteResult.warning) {
+            confirmationMessage += `\n⚠️ ${undeleteResult.warning}`;
+        }
+        if (!replySent) {
+            confirmationMessage += '\n⚠️ Failed to reply to the original message.';
+        }
+
+        await interaction.editReply({
+            content: confirmationMessage,
+            ephemeral: true
+        });
+
+    } catch (error) {
+        console.error('Error processing undelete request:', error);
+        await interaction.editReply({
+            content: `❌ An error occurred while processing the undelete request: ${error.message}`,
+            ephemeral: true
+        });
+    }
+}
+
 module.exports = {
     showDeclineModal,
     sendDeclineDM,
@@ -444,5 +608,6 @@ module.exports = {
     processDecline,
     processAccept,
     sendAcceptDM,
-    replyToOriginalMessageAndDisableButtons
+    replyToOriginalMessageAndDisableButtons,
+    handleUndeletePost
 };

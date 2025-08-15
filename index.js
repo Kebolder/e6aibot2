@@ -148,6 +148,25 @@ client.on(Events.InteractionCreate, async interaction => {
             return;
         }
 
+        // Handle undelete button
+        if (interaction.customId.startsWith('undelete_post:')) {
+            try {
+                // Extract data from the custom ID
+                const customId = interaction.customId;
+                const [, postId, moderatorId] = customId.split(':');
+                
+                // Process the undeletion
+                await handleUndeletePost(interaction, postId, moderatorId);
+            } catch (error) {
+                console.error('Error handling undelete button:', error);
+                await interaction.reply({
+                    content: '❌ An error occurred while processing your request.',
+                    ephemeral: true
+                });
+            }
+            return;
+        }
+
         // Handle other buttons here if needed
         return;
     }
