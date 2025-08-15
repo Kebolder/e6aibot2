@@ -84,8 +84,8 @@ module.exports = {
             // Add action row for moderator buttons
             let moderatorActionRow = null;
 
-            // Add decline and accept buttons if user is authorized
-            if (DiscordIDs.length > 0 && DiscordIDs.includes(interaction.user.id)) {
+            // Add decline and accept buttons if user is authorized (check config)
+            if (DiscordIDs.length > 0) {
                 const declineButton = new ButtonBuilder()
                     .setCustomId(`decline_request:${postId}:${interaction.user.id}`)
                     .setLabel('DECLINE')
