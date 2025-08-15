@@ -1,0 +1,22 @@
+{
+  "name": "e6aibotv2",
+  "version": "1.0.0",
+  "description": "A Discord bot",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js"
+  },
+  "keywords": [
+    "discord",
+    "bot"
+  ],
+  "author": "Jax (Slop Dragon)",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.11.0",
+    "discord.js": "^14.20.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
+  }
+}

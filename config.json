@@ -1,0 +1,18 @@
+{
+  "tagsToFilter": ["feral", "young"],
+  "devmode": false,
+  "DiscordIDs": [
+    "439174124816957450",
+    "1251068622454128721",
+    "1101045525274435635",
+    "336999080704081921",
+    "118879458957459456"
+  ],
+  "channels": {
+    "replacementRequestChannel": "1380763531900751882"
+  },
+  "api": {
+    "printReturn": true,
+    "userAgent": "E6AIBot/{version} (by Slop on e6AI)"
+  }
+}
