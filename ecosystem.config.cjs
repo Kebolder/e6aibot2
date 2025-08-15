@@ -3,7 +3,7 @@ module.exports = {
     {
       name: "E6ai 2.0",
       script: "index.js",
-      cwd: "/home/discord/e6aibot2",
+      cwd: "/home/kebolder/discord/e6aibot2",
       instances: 1,
       exec_mode: "fork",
       watch: false,
