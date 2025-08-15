@@ -108,24 +108,18 @@ async function replyToOriginalMessage(channel, messageId, postId, reason, modera
         if (originalMessage.components && originalMessage.components.length > 0) {
             const updatedComponents = originalMessage.components.map(row => {
                 if (row.components && row.components.length > 0) {
-                    return {
-                        type: ComponentType.ActionRow,
-                        components: row.components.map(component => {
+                    return ActionRowBuilder.from(row).addComponents(
+                        row.components.map(component => {
                             if (component.type === ComponentType.Button) {
                                 // Disable both decline and accept buttons
-                                return {
-                                    type: ComponentType.Button,
-                                    custom_id: component.customId,
-                                    disabled: true,
-                                    style: ButtonStyle.Secondary, // Change color to indicate it's disabled
-                                    label: component.custom_id?.startsWith('decline_request:') ? 'DECLINED' : 'ACCEPTED',
-                                    emoji: component.emoji,
-                                    url: component.url
-                                };
+                                return ButtonBuilder.from(component)
+                                    .setDisabled(true)
+                                    .setStyle(ButtonStyle.Secondary)
+                                    .setLabel(component.custom_id?.startsWith('decline_request:') ? 'DECLINED' : 'ACCEPTED');
                             }
                             return component;
                         })
-                    };
+                    );
                 }
                 return row;
             });
