@@ -32,10 +32,7 @@ class LinkListener {
         await message.channel.send({
           content: content,
           embeds: [result.embed],
-          files: content ? [] : [{
-            attachment: result.post.file.url,
-            name: `post_${result.post.id}.${result.post.file.ext || 'jpg'}`
-          }],
+          files: [],
           components: result.components || []
         });
       }
