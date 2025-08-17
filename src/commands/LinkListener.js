@@ -26,8 +26,16 @@ class LinkListener {
         console.log(`Found post ${postId}: ${result.post.id}`);
         
         // Send the embed with the built-in "Visit post" button
+        // Use content instead of embeds to ensure buttons appear properly
+        const content = result.shouldSpoiler ? `|| ${result.post.file.url} ||` : null;
+        
         await message.channel.send({
+          content: content,
           embeds: [result.embed],
+          files: content ? [] : [{
+            attachment: result.post.file.url,
+            name: `post_${result.post.id}.${result.post.file.ext || 'jpg'}`
+          }],
           components: result.components || []
         });
       }

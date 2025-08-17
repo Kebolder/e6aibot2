@@ -12,7 +12,7 @@
     "replacementRequestChannel": "1380763531900751882"
   },
   "api": {
-    "printReturn": true,
+    "printReturn": false,
     "userAgent": "E6AIBot/{version} (by Slop on e6AI)"
   }
 }

@@ -13,6 +13,14 @@ const config = require('../../config.json');
 const packageJson = require('../../package.json');
 
 /**
+ * Helper function to check if API return printing is enabled
+ * @returns {boolean} True if printReturn is enabled
+ */
+const shouldPrintApiReturns = () => {
+  return config.api && config.api.printReturn === true;
+};
+
+/**
  * Common headers for e6AI API requests
  * @returns {Object} Headers object
  */
@@ -83,14 +91,10 @@ const fetchPostData = async (postId) => {
       headers: getCommonHeaders()
     });
     
-    console.log(`API Response status: ${response.status}`);
-    console.log(`API Response data keys:`, Object.keys(response.data || {}));
-    
-    // Print full API response if configured
-    if (config.api.printReturn) {
-      console.log('=== FULL API RESPONSE ===');
-      console.log(JSON.stringify(response.data, null, 2));
-      console.log('=== END API RESPONSE ===');
+    // Print API response status and data keys only if configured
+    if (shouldPrintApiReturns()) {
+      console.log(`API Response status: ${response.status}`);
+      console.log(`API Response data keys:`, Object.keys(response.data || {}));
     }
     
     return response.data;
@@ -108,15 +112,19 @@ const fetchPostData = async (postId) => {
 const extractPostFromResponse = (postId, responseData) => {
   if (responseData && responseData.post) {
     const post = responseData.post;
-    console.log(`Post ${postId} file data:`, post.file);
-    if (post.file?.url) {
-      console.log(`Successfully found post ${postId}: ${post.file.url}`);
-    } else {
-      console.log(`Post ${postId} response missing file URL:`, post.file);
+    if (shouldPrintApiReturns()) {
+      console.log(`Post ${postId} file data:`, post.file);
+      if (post.file?.url) {
+        console.log(`Successfully found post ${postId}: ${post.file.url}`);
+      } else {
+        console.log(`Post ${postId} response missing file URL:`, post.file);
+      }
     }
     return post;
   } else {
-    console.log(`Post ${postId} response missing post data:`, responseData);
+    if (shouldPrintApiReturns()) {
+      console.log(`Post ${postId} response missing post data:`, responseData);
+    }
     return responseData;
   }
 };
@@ -129,23 +137,32 @@ const extractPostFromResponse = (postId, responseData) => {
 const getUsername = async (userId) => {
   try {
     const baseUrl = config.devmode ? 'http://localhost:3001' : 'https://e6ai.net';
-    console.log(`Fetching username for user ${userId} from e6AI API... (using ${baseUrl})`);
+    if (shouldPrintApiReturns()) {
+      console.log(`Fetching username for user ${userId} from e6AI API... (using ${baseUrl})`);
+    }
     
     const response = await axios.get(`${baseUrl}/users/${userId}.json`, {
       headers: getCommonHeaders()
     });
     
-    console.log(`API Response status: ${response.status}`);
-    console.log(`API Response data keys:`, Object.keys(response.data || {}));
+    // Print API response status and data keys only if configured
+    if (shouldPrintApiReturns()) {
+      console.log(`API Response status: ${response.status}`);
+      console.log(`API Response data keys:`, Object.keys(response.data || {}));
+    }
     
     // Extract username from JSON response
     if (response.data && response.data.name) {
       const username = response.data.name.trim();
-      console.log(`Found username for user ${userId}: ${username}`);
+      if (shouldPrintApiReturns()) {
+        console.log(`Found username for user ${userId}: ${username}`);
+      }
       return username;
     } else {
-      console.log(`Username not found in API response for user ${userId}`);
-      console.log('API response data:', response.data);
+      if (shouldPrintApiReturns()) {
+        console.log(`Username not found in API response for user ${userId}`);
+        console.log('API response data:', response.data);
+      }
       return userId.toString(); // Fallback to user ID
     }
   } catch (error) {
@@ -193,8 +210,10 @@ const submitPostReplacement = async (postId, imageData, filename, contentType, r
     const baseUrl = config.devmode ? 'http://localhost:3001' : 'https://e6ai.net';
     const credentials = getCredentials();
     const apiUrl = `${baseUrl}/post_replacements.json?post_id=${postId}&login=${credentials.username}&api_key=${credentials.apiKey}`;
-    console.log(`Submitting replacement to: ${apiUrl}`);
-    console.log(`With Reason: ${reason}, File: ${filename}`);
+    if (shouldPrintApiReturns()) {
+      console.log(`Submitting replacement to: ${apiUrl}`);
+      console.log(`With Reason: ${reason}, File: ${filename}`);
+    }
 
     const response = await axios.post(
       apiUrl,
@@ -207,7 +226,9 @@ const submitPostReplacement = async (postId, imageData, filename, contentType, r
       }
     );
 
-    console.log(`Replacement submission status: ${response.status}`);
+    if (shouldPrintApiReturns()) {
+      console.log(`Replacement submission status: ${response.status}`);
+    }
     return response.data;
   } catch (error) {
     console.error('Error submitting post replacement:', error.isAxiosError ? error.toJSON() : error);
@@ -258,7 +279,9 @@ const undeletePost = async (postId) => {
       },
     });
 
-    console.log(`Undelete request for post ${postId} status: ${response.status}`);
+    if (shouldPrintApiReturns()) {
+      console.log(`Undelete request for post ${postId} status: ${response.status}`);
+    }
     return response.data;
   } catch (error) {
     console.error(`Error undeleting post ${postId}:`, error.isAxiosError ? error.toJSON() : error);

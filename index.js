@@ -74,6 +74,62 @@ client.on(Events.MessageCreate, async message => {
     }
 });
 
+/**
+ * Helper function to disable buttons on a message immediately after interaction
+ * @param {Interaction} interaction - The button interaction
+ */
+async function disableButtonsOnMessage(interaction) {
+    try {
+        const message = interaction.message;
+        if (!message || !message.components || message.components.length === 0) {
+            return;
+        }
+        
+        const { ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType } = require('discord.js');
+        
+        // Create new components with disabled buttons
+        const updatedComponents = message.components.map(row => {
+            const actionRow = ActionRowBuilder.from(row);
+            
+            // Update each button in the row
+            const updatedButtons = row.components.map(component => {
+                if (component.type === ComponentType.Button) {
+                    // Handle differently based on button type
+                    if (component.style === ButtonStyle.Link) {
+                        // For link buttons, keep them as is
+                        return ButtonBuilder.from(component);
+                    } else {
+                        // For non-link buttons, disable them and change style
+                        const newButton = new ButtonBuilder()
+                            .setCustomId(component.customId)
+                            .setLabel(component.label + ' (Processing...)')
+                            .setStyle(ButtonStyle.Secondary)
+                            .setDisabled(true);
+                            
+                        // Copy emoji if present
+                        if (component.emoji) {
+                            newButton.setEmoji(component.emoji);
+                        }
+                        
+                        return newButton;
+                    }
+                }
+                return component;
+            });
+            
+            // Replace components in the action row
+            return new ActionRowBuilder().addComponents(updatedButtons);
+        });
+        
+        // Update the message with disabled buttons
+        await message.edit({ components: updatedComponents });
+        console.log('Buttons disabled on message:', message.id);
+    } catch (error) {
+        console.error('Error disabling buttons:', error);
+        // Don't throw - this is a non-critical operation
+    }
+}
+
 // Handle interactions (slash commands, buttons, modals)
 client.on(Events.InteractionCreate, async interaction => {
     // Handle slash command interactions
@@ -121,6 +177,9 @@ client.on(Events.InteractionCreate, async interaction => {
                 // Extract post ID and user ID from custom ID
                 const [, postId, userId] = interaction.customId.split(':');
                 
+                // Immediately disable buttons on the message
+                await disableButtonsOnMessage(interaction);
+                
                 // Show the decline modal
                 await handleDecline.showDeclineModal(interaction, postId, userId);
             } catch (error) {
@@ -136,6 +195,9 @@ client.on(Events.InteractionCreate, async interaction => {
         // Handle accept button
         if (interaction.customId.startsWith('accept_request:')) {
             try {
+                // Immediately disable buttons on the message
+                await disableButtonsOnMessage(interaction);
+                
                 // Process the accept request directly
                 await handleDecline.processAccept(interaction, client);
             } catch (error) {
@@ -155,8 +217,11 @@ client.on(Events.InteractionCreate, async interaction => {
                 const customId = interaction.customId;
                 const [, postId, moderatorId] = customId.split(':');
                 
+                // Immediately disable buttons on the message
+                await disableButtonsOnMessage(interaction);
+                
                 // Process the undeletion
-                await handleUndeletePost(interaction, postId, moderatorId);
+                await handleDecline.handleUndeletePost(interaction, postId, moderatorId);
             } catch (error) {
                 console.error('Error handling undelete button:', error);
                 await interaction.reply({

@@ -11,6 +11,15 @@
 
 const fetchPost = require('./fetchPost');
 const api = require('./api');
+const config = require('../../config.json');
+
+/**
+ * Helper function to check if API return printing is enabled
+ * @returns {boolean} True if printReturn is enabled
+ */
+const shouldPrintApiReturns = () => {
+  return config.api && config.api.printReturn === true;
+};
 
 /**
  * Validate replacement input parameters
@@ -81,15 +90,21 @@ const processReplacement = async (postId, imageAttachment, reason, options = {})
       throw new Error(`Could not fetch the old image. The post might not exist or the bot may not have permission to view it.`);
     }
 
-    console.log(`Old image URL: ${oldImageUrl}`);
+    if (shouldPrintApiReturns()) {
+      console.log(`Old image URL: ${oldImageUrl}`);
+    }
 
     // Fetch the replacement file data
-    console.log(`Fetching replacement file from ${imageAttachment.url}...`);
+    if (shouldPrintApiReturns()) {
+      console.log(`Fetching replacement file from ${imageAttachment.url}...`);
+    }
     const axios = require('axios');
     const imageResponse = await axios.get(imageAttachment.url, { responseType: 'stream' });
 
     // Submit the replacement
-    console.log('Submitting replacement to e6AI...');
+    if (shouldPrintApiReturns()) {
+      console.log('Submitting replacement to e6AI...');
+    }
     const replacementData = await api.submitPostReplacement(
       postId,
       imageResponse.data,
@@ -102,7 +117,9 @@ const processReplacement = async (postId, imageAttachment, reason, options = {})
       }
     );
 
-    console.log('Replacement submitted successfully');
+    if (shouldPrintApiReturns()) {
+      console.log('Replacement submitted successfully');
+    }
     return {
       success: true,
       oldImageUrl,
@@ -122,13 +139,17 @@ const processReplacement = async (postId, imageAttachment, reason, options = {})
  */
 const handlePostUndeletion = async (postId) => {
   try {
-    console.log(`Attempting to undelete post ${postId}...`);
+    if (shouldPrintApiReturns()) {
+      console.log(`Attempting to undelete post ${postId}...`);
+    }
     const undeleteData = await api.undeletePost(postId);
     
     // Wait for 2 seconds to allow the server to process the undeletion
     await new Promise(resolve => setTimeout(resolve, 2000));
     
-    console.log('Post undeleted successfully');
+    if (shouldPrintApiReturns()) {
+      console.log('Post undeleted successfully');
+    }
     return {
       success: true,
       undeleteData
@@ -160,9 +181,13 @@ const handlePostUndeletion = async (postId) => {
  */
 const refreshPostMessage = async (postId) => {
   try {
-    console.log(`Refreshing post ${postId} after replacement...`);
+    if (shouldPrintApiReturns()) {
+      console.log(`Refreshing post ${postId} after replacement...`);
+    }
     const result = await fetchPost.getPost(postId);
-    console.log('Post refreshed successfully');
+    if (shouldPrintApiReturns()) {
+      console.log('Post refreshed successfully');
+    }
     return result;
   } catch (error) {
     console.error(`Error refreshing post ${postId}:`, error.message);

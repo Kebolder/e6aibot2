@@ -120,6 +120,7 @@ module.exports.createPostEmbed = async (post, options = {}) => {
         finalDescription += `\n\n|| ${post.file.url} ||`;
       }
       embed.setDescription(finalDescription);
+      // Don't set image URL for spoiler posts - it will be handled in the LinkListener
     } else {
       embed.setImage(post.file.url);
     }

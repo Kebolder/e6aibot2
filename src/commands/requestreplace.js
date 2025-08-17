@@ -1,6 +1,7 @@
 const { SlashCommandBuilder, EmbedBuilder, InteractionContextType, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const config = require('../../config.json');
 const fetchPost = require('../utils/fetchPost');
+const handleDecline = require('../utils/handleDecline');
 
 const { DiscordIDs = [] } = config;
 
@@ -37,6 +38,29 @@ module.exports = {
             return interaction.reply({ content: '❌ Replacement request channel is not configured. Please contact a bot administrator.', ephemeral: true });
         }
 
+        // Check if there's already an active request for this post/user combination
+        const requestKey = `${postId}:${interaction.user.id}`;
+        if (handleDecline.activeRequests.has(requestKey)) {
+            const existingRequest = handleDecline.activeRequests.get(requestKey);
+            if (existingRequest.status === 'pending' || Date.now() - existingRequest.timestamp < 300000) { // 5 minutes
+                return interaction.reply({
+                    content: '❌ You already have an active replacement request for this post. Please wait for it to be processed or declined before making another request.',
+                    ephemeral: true
+                });
+            }
+        }
+
+        // Acquire lock for this post to prevent concurrent processing
+        if (handleDecline.requestLocks.has(postId)) {
+            return interaction.reply({
+                content: '❌ This post is currently being processed. Please wait a moment and try again.',
+                ephemeral: true
+            });
+        }
+
+        // Add lock for this post
+        handleDecline.requestLocks.add(postId);
+
         await interaction.deferReply({ ephemeral: true });
 
         try {
@@ -65,9 +89,27 @@ module.exports = {
                 .setThumbnail(interaction.user.displayAvatarURL())
                 .setTimestamp();
 
+            // Check if any filtered tags are present in the post's general tags
+            const filterTags = Array.isArray(config.tagsToFilter)
+                ? config.tagsToFilter.flatMap(tag => tag.split(',').map(t => t.trim()))
+                : [];
+            
+            const shouldSpoiler = filterTags.length > 0 &&
+                post.tags?.general?.some(tag => filterTags.includes(tag));
+            
             // Add post image if available and not deleted
             if (post.file?.url && !post.flags?.deleted) {
-                requestEmbed.setImage(post.file.url);
+                if (shouldSpoiler) {
+                    // For filtered posts, add the image URL as text instead of embedding it
+                    requestEmbed.addFields({
+                        name: 'Image URL (Filtered Content)',
+                        value: `|| ${post.file.url} ||`,
+                        inline: false
+                    });
+                    // Don't set the image for spoilered content
+                } else {
+                    requestEmbed.setImage(post.file.url);
+                }
             }
 
             // Create buttons
@@ -119,14 +161,28 @@ module.exports = {
                 }]
             });
 
+            // Track this active request
+            handleDecline.activeRequests.set(requestKey, {
+                messageId: requestMessage.id,
+                timestamp: Date.now(),
+                status: 'pending',
+                channelId: channel.id
+            });
+
             // Send confirmation to the user
             await interaction.editReply({
                 content: `✅ Your replacement request for post #${postId} has been submitted successfully! The file has been attached to the request message.\n\nPlease be patient as you will receive a message when a Janitor gets to your request.`,
                 ephemeral: true
             });
 
+            // Release lock after successful submission
+            handleDecline.requestLocks.delete(postId);
+
         } catch (error) {
             console.error('Error processing requestreplace command:', error);
+            
+            // Release lock on error
+            handleDecline.requestLocks.delete(postId);
             
             let errorMessage = 'An error occurred while processing your replacement request.';
             if (error.message.includes('not found')) {

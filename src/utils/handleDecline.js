@@ -4,6 +4,10 @@ const replacePost = require('./replacePost');
 const fetchPost = require('./fetchPost');
 const api = require('./api');
 
+// In-memory storage for active requests to prevent duplicates and handle concurrency
+const activeRequests = new Map(); // Key: `${postId}:${userId}`, Value: { messageId, timestamp, status }
+const requestLocks = new Set(); // Keys for posts that are currently being processed
+
 /**
  * Creates and shows a modal for inputting decline reasons
  * @param {Object} interaction - The button interaction
@@ -11,6 +15,8 @@ const api = require('./api');
  * @param {string} userId - The user ID from the original request
  */
 async function showDeclineModal(interaction, postId, userId) {
+    // Removed the active request check entirely for decline functionality
+    // This allows users to decline their own requests if they have moderator permissions
     // Create the modal
     const modal = new ModalBuilder()
         .setCustomId(`decline_reason:${postId}:${userId}`)
@@ -80,61 +86,39 @@ async function sendDeclineDM(client, userId, postId, reason) {
 }
 
 /**
- * Replies to the original request message indicating it was declined and disables the decline button
- * @param {Object} channel - The channel where the original message was sent
+ * Posts a decline notification in the channel
+ * @param {Object} channel - The channel where to post the notification
  * @param {string} messageId - The ID of the original message
  * @param {string} postId - The post ID from the original request
  * @param {string} reason - The decline reason
  * @param {string} moderatorId - The ID of the moderator who declined the request
+ * @param {string} requesterId - The ID of the user who made the request
+ * @returns {Promise<boolean>} - True if notification was sent successfully, false otherwise
  */
-async function replyToOriginalMessage(channel, messageId, postId, reason, moderatorId) {
+async function postDeclineNotification(channel, messageId, postId, reason, moderatorId, requesterId) {
     try {
-        const originalMessage = await channel.messages.fetch(messageId);
-        
-        // Create reply embed
-        const replyEmbed = new EmbedBuilder()
-            .setColor(0xff9900) // Orange color
-            .setTitle('⚠️ Request Declined')
-            .setDescription(`Replacement request for post #${postId} has been declined.`)
+        // Create a decline notification embed
+        const declineEmbed = new EmbedBuilder()
+            .setColor(0xff0000) // Red color
+            .setTitle('❌ Replacement Request Declined')
+            .setDescription(`Replacement request for post #${postId} has been declined by <@${moderatorId}>`)
             .addFields(
-                { name: 'Declined by', value: `<@${moderatorId}>`, inline: true },
+                { name: 'Post ID', value: postId.toString(), inline: true },
+                { name: 'Requested by', value: `<@${requesterId}>`, inline: true },
                 { name: 'Reason', value: reason, inline: false }
             )
             .setTimestamp()
             .setFooter({ text: 'e6AI Bot' });
 
-        // Reply to the original message first
-        await originalMessage.reply({ embeds: [replyEmbed] });
-
-        // Now update the original message to disable both decline and accept buttons
-        if (originalMessage.components && originalMessage.components.length > 0) {
-            const updatedComponents = originalMessage.components.map(row => {
-                if (row.components && row.components.length > 0) {
-                    return ActionRowBuilder.from(row).addComponents(
-                        row.components.map(component => {
-                            if (component.type === ComponentType.Button) {
-                                // Disable both decline and accept buttons
-                                return ButtonBuilder.from(component)
-                                    .setDisabled(true)
-                                    .setStyle(ButtonStyle.Secondary)
-                                    .setLabel(component.custom_id?.startsWith('decline_request:') ? 'DECLINED' : 'ACCEPTED');
-                            }
-                            return component;
-                        })
-                    );
-                }
-                return row;
-            });
-
-            // Update the original message with disabled button
-            await originalMessage.edit({
-                components: updatedComponents
-            });
-        }
-
+        // Send the notification to the channel
+        await channel.send({
+            embeds: [declineEmbed]
+        });
+        
+        console.log(`Request for post #${postId} declined by moderator ${moderatorId}`);
         return true;
     } catch (error) {
-        console.error(`Error replying to original message ${messageId}:`, error);
+        console.error(`Error posting decline notification for message ${messageId}:`, error);
         return false;
     }
 }
@@ -172,45 +156,93 @@ async function processDecline(interaction, client) {
             });
         }
 
-        // Find the original request message
-        const messages = await channel.messages.fetch({ limit: 50 });
-        const originalMessage = messages.find(msg => 
-            msg.embeds.length > 0 && 
+        // Find the original request message with a broader search
+        const messages = await channel.messages.fetch({ limit: 100 });
+        let originalMessage = messages.find(msg =>
+            msg.embeds.length > 0 &&
             msg.embeds[0].title === '🔄 Replacement Request' &&
-            msg.embeds[0].fields.some(field => 
+            msg.embeds[0].fields.some(field =>
                 field.name === 'Post ID' && field.value === postId
             )
         );
 
         if (!originalMessage) {
-            return interaction.editReply({ 
-                content: `❌ Could not find the original request message for post #${postId}.`, 
-                ephemeral: true 
+            // Try alternative search methods if the first attempt fails
+            console.log(`First search failed for post #${postId}, trying alternative search...`);
+            
+            // Search for messages with the post ID in any field or content
+            const altMessage = messages.find(msg =>
+                msg.content.includes(postId) ||
+                msg.embeds.some(embed =>
+                    embed.fields.some(field =>
+                        field.value === postId || field.name === 'Post ID'
+                    )
+                )
+            );
+            
+            if (altMessage) {
+                console.log(`Found alternative message for post #${postId}: ${altMessage.id}`);
+                originalMessage = altMessage;
+            }
+        }
+
+        if (!originalMessage) {
+            console.error(`Could not find original request message for post #${postId} after searching ${messages.size} messages`);
+            return interaction.editReply({
+                content: `❌ Could not find the original request message for post #${postId}. The message may have been deleted or is too old.`,
+                ephemeral: true
             });
         }
 
         // Send decline DM to the user
         const dmSent = await sendDeclineDM(client, userId, postId, reason);
         
-        // Reply to the original message
-        const replySent = await replyToOriginalMessage(channel, originalMessage.id, postId, reason, interaction.user.id);
+        // Post a decline notification in the channel
+        const notificationSent = await postDeclineNotification(channel, originalMessage.id, postId, reason, interaction.user.id, userId);
 
         // Send confirmation to the moderator
         let confirmationMessage = `✅ Replacement request for post #${postId} has been declined.`;
         if (!dmSent) {
             confirmationMessage += '\n⚠️ Failed to send DM to the user (they may have DMs disabled).';
         }
-        if (!replySent) {
-            confirmationMessage += '\n⚠️ Failed to reply to the original message.';
+        if (!notificationSent) {
+            confirmationMessage += '\n⚠️ Failed to post the decline notification.';
+        }
+        
+        await interaction.editReply({
+            content: confirmationMessage,
+            ephemeral: true
+        })
+        
+        // Clean up the original request message and update request status
+        try {
+            await originalMessage.delete();
+            console.log(`Cleaned up replacement request message for post #${postId}`);
+            
+            // Remove from active requests and release lock
+            const requestKey = `${postId}:${userId}`;
+            activeRequests.delete(requestKey);
+            
+            // Release the lock on this post
+            if (requestLocks.has(postId)) {
+                requestLocks.delete(postId);
+                console.log(`Released lock for post #${postId}`);
+            }
+        } catch (cleanupError) {
+            console.warn(`Failed to clean up original request message for post #${postId}:`, cleanupError.message);
         }
 
-        await interaction.editReply({ 
-            content: confirmationMessage, 
-            ephemeral: true 
-        });
+        // Reply already sent above
 
     } catch (error) {
         console.error('Error processing decline request:', error);
+        
+        // Make sure to release lock even on error
+        if (postId && requestLocks.has(postId)) {
+            requestLocks.delete(postId);
+            console.log(`Released lock for post #${postId} after error`);
+        }
+        
         await interaction.editReply({ 
             content: `❌ An error occurred while processing the decline request: ${error.message}`, 
             ephemeral: true 
@@ -248,9 +280,9 @@ async function processAccept(interaction, client) {
             });
         }
 
-        // Find the original request message
-        const messages = await channel.messages.fetch({ limit: 50 });
-        const originalMessage = messages.find(msg =>
+        // Find the original request message with a broader search
+        const messages = await channel.messages.fetch({ limit: 100 });
+        let originalMessage = messages.find(msg =>
             msg.embeds.length > 0 &&
             msg.embeds[0].title === '🔄 Replacement Request' &&
             msg.embeds[0].fields.some(field =>
@@ -259,8 +291,29 @@ async function processAccept(interaction, client) {
         );
 
         if (!originalMessage) {
+            // Try alternative search methods if the first attempt fails
+            console.log(`First search failed for post #${postId}, trying alternative search...`);
+            
+            // Search for messages with the post ID in any field or content
+            const altMessage = messages.find(msg =>
+                msg.content.includes(postId) ||
+                msg.embeds.some(embed =>
+                    embed.fields.some(field =>
+                        field.value === postId || field.name === 'Post ID'
+                    )
+                )
+            );
+            
+            if (altMessage) {
+                console.log(`Found alternative message for post #${postId}: ${altMessage.id}`);
+                originalMessage = altMessage;
+            }
+        }
+
+        if (!originalMessage) {
+            console.error(`Could not find original request message for post #${postId} after searching ${messages.size} messages`);
             return interaction.editReply({
-                content: `❌ Could not find the original request message for post #${postId}.`,
+                content: `❌ Could not find the original request message for post #${postId}. The message may have been deleted or is too old.`,
                 ephemeral: true
             });
         }
@@ -336,7 +389,7 @@ async function processAccept(interaction, client) {
         // Reply to the original message and disable buttons
         const replySent = await replyToOriginalMessageAndDisableButtons(channel, originalMessage.id, postId, interaction.user.id);
 
-        // Send confirmation to the moderator
+        // Send confirmation to the moderator first, before deleting the message
         let confirmationMessage = `✅ Replacement request for post #${postId} has been accepted and processed successfully.`;
         if (!dmSent) {
             confirmationMessage += '\n⚠️ Failed to send DM to the user (they may have DMs disabled).';
@@ -344,14 +397,41 @@ async function processAccept(interaction, client) {
         if (!replySent) {
             confirmationMessage += '\n⚠️ Failed to reply to the original message.';
         }
-
+        
         await interaction.editReply({
             content: confirmationMessage,
             ephemeral: true
         });
+        
+        // Clean up the original request message and update request status
+        try {
+            await originalMessage.delete();
+            console.log(`Cleaned up replacement request message for post #${postId}`);
+            
+            // Remove from active requests and release lock
+            const requestKey = `${postId}:${userId}`;
+            activeRequests.delete(requestKey);
+            
+            // Release the lock on this post
+            if (requestLocks.has(postId)) {
+                requestLocks.delete(postId);
+                console.log(`Released lock for post #${postId}`);
+            }
+        } catch (cleanupError) {
+            console.warn(`Failed to clean up original request message for post #${postId}:`, cleanupError.message);
+        }
+
+        // Reply already sent above
 
     } catch (error) {
         console.error('Error processing accept request:', error);
+        
+        // Make sure to release lock even on error
+        if (postId && requestLocks.has(postId)) {
+            requestLocks.delete(postId);
+            console.log(`Released lock for post #${postId} after error`);
+        }
+        
         await interaction.editReply({
             content: `❌ An error occurred while processing the accept request: ${error.message}`,
             ephemeral: true
@@ -403,7 +483,7 @@ async function sendAcceptDM(client, userId, postId) {
 }
 
 /**
- * Replies to the original request message indicating it was accepted and disables both buttons
+ * Previously replied to the original request message, but now just logs the action
  * @param {Object} channel - The channel where the original message was sent
  * @param {string} messageId - The ID of the original message
  * @param {string} postId - The post ID from the original request
@@ -412,58 +492,11 @@ async function sendAcceptDM(client, userId, postId) {
  */
 async function replyToOriginalMessageAndDisableButtons(channel, messageId, postId, moderatorId) {
     try {
-        const originalMessage = await channel.messages.fetch(messageId);
-        
-        // Create reply embed
-        const replyEmbed = new EmbedBuilder()
-            .setColor(0x00ff00) // Green color
-            .setTitle('✅ Request Accepted')
-            .setDescription(`Replacement request for post #${postId} has been accepted and processed successfully.`)
-            .addFields(
-                { name: 'Accepted by', value: `<@${moderatorId}>`, inline: true },
-                { name: 'Status', value: 'Replacement Complete', inline: false }
-            )
-            .setTimestamp()
-            .setFooter({ text: 'e6AI Bot' });
-
-        // Reply to the original message first
-        await originalMessage.reply({ embeds: [replyEmbed] });
-
-        // Now update the original message to disable both decline and accept buttons
-        if (originalMessage.components && originalMessage.components.length > 0) {
-            const updatedComponents = originalMessage.components.map(row => {
-                if (row.components && row.components.length > 0) {
-                    return {
-                        type: ComponentType.ActionRow,
-                        components: row.components.map(component => {
-                            if (component.type === ComponentType.Button) {
-                                // Disable both decline and accept buttons
-                                return {
-                                    type: ComponentType.Button,
-                                    custom_id: component.custom_id,
-                                    disabled: true,
-                                    style: ButtonStyle.Secondary, // Change color to indicate it's disabled
-                                    label: component.custom_id?.startsWith('decline_request:') ? 'DECLINED' : 'ACCEPTED',
-                                    emoji: component.emoji,
-                                    url: component.url
-                                };
-                            }
-                            return component;
-                        })
-                    };
-                }
-                return row;
-            });
-
-            // Update the original message with disabled buttons
-            await originalMessage.edit({
-                components: updatedComponents
-            });
-        }
-
+        // We no longer reply to or edit the original message since it will be deleted
+        console.log(`Request for post #${postId} accepted by moderator ${moderatorId}`);
         return true;
     } catch (error) {
-        console.error(`Error replying to original message ${messageId}:`, error);
+        console.error(`Error processing accept for message ${messageId}:`, error);
         return false;
     }
 }
@@ -495,9 +528,9 @@ async function handleUndeletePost(interaction, postId, moderatorId) {
             });
         }
 
-        // Find the original request message
-        const messages = await channel.messages.fetch({ limit: 50 });
-        const originalMessage = messages.find(msg =>
+        // Find the original request message with a broader search
+        const messages = await channel.messages.fetch({ limit: 100 });
+        let originalMessage = messages.find(msg =>
             msg.embeds.length > 0 &&
             msg.embeds[0].title === '🔄 Replacement Request' &&
             msg.embeds[0].fields.some(field =>
@@ -506,8 +539,29 @@ async function handleUndeletePost(interaction, postId, moderatorId) {
         );
 
         if (!originalMessage) {
+            // Try alternative search methods if the first attempt fails
+            console.log(`First search failed for post #${postId}, trying alternative search...`);
+            
+            // Search for messages with the post ID in any field or content
+            const altMessage = messages.find(msg =>
+                msg.content.includes(postId) ||
+                msg.embeds.some(embed =>
+                    embed.fields.some(field =>
+                        field.value === postId || field.name === 'Post ID'
+                    )
+                )
+            );
+            
+            if (altMessage) {
+                console.log(`Found alternative message for post #${postId}: ${altMessage.id}`);
+                originalMessage = altMessage;
+            }
+        }
+
+        if (!originalMessage) {
+            console.error(`Could not find original request message for post #${postId} after searching ${messages.size} messages`);
             return interaction.editReply({
-                content: `❌ Could not find the original request message for post #${postId}.`,
+                content: `❌ Could not find the original request message for post #${postId}. The message may have deleted or is too old.`,
                 ephemeral: true
             });
         }
@@ -578,7 +632,7 @@ async function handleUndeletePost(interaction, postId, moderatorId) {
         // Reply to the original message and disable buttons
         const replySent = await replyToOriginalMessageAndDisableButtons(channel, originalMessage.id, postId, moderatorId);
 
-        // Send confirmation to the moderator
+        // Send confirmation to the moderator first, before deleting the message
         let confirmationMessage = `✅ Post #${postId} has been undeleted and the replacement has been processed successfully!`;
         if (undeleteResult.warning) {
             confirmationMessage += `\n⚠️ ${undeleteResult.warning}`;
@@ -586,14 +640,31 @@ async function handleUndeletePost(interaction, postId, moderatorId) {
         if (!replySent) {
             confirmationMessage += '\n⚠️ Failed to reply to the original message.';
         }
-
+        
         await interaction.editReply({
             content: confirmationMessage,
             ephemeral: true
         });
+        
+        // Clean up the original request message
+        try {
+            await originalMessage.delete();
+            console.log(`Cleaned up replacement request message for post #${postId}`);
+        } catch (cleanupError) {
+            console.warn(`Failed to clean up original request message for post #${postId}:`, cleanupError.message);
+        }
+
+        // Reply already sent above
 
     } catch (error) {
         console.error('Error processing undelete request:', error);
+        
+        // Make sure to release lock even on error
+        if (postId && requestLocks.has(postId)) {
+            requestLocks.delete(postId);
+            console.log(`Released lock for post #${postId} after error`);
+        }
+        
         await interaction.editReply({
             content: `❌ An error occurred while processing the undelete request: ${error.message}`,
             ephemeral: true
@@ -601,13 +672,74 @@ async function handleUndeletePost(interaction, postId, moderatorId) {
     }
 }
 
+/**
+ * Automatically clean up stale locks and requests
+ * This runs periodically to ensure no locks get stuck
+ */
+function cleanupStaleLocks() {
+    const now = Date.now();
+    const staleThreshold = 15 * 60 * 1000; // 15 minutes
+    let clearedLocks = 0;
+    let clearedRequests = 0;
+    
+    // Clean up stale request locks
+    for (const postId of requestLocks) {
+        // Since we don't store timestamps with locks, 
+        // we'll check if there's a corresponding active request
+        let hasActiveRequest = false;
+        for (const [key, value] of activeRequests.entries()) {
+            if (key.startsWith(`${postId}:`)) {
+                hasActiveRequest = true;
+                break;
+            }
+        }
+        
+        // If no active request, clear the lock
+        if (!hasActiveRequest) {
+            requestLocks.delete(postId);
+            console.log(`Auto-cleared stale lock for post #${postId}`);
+            clearedLocks++;
+        }
+    }
+    
+    // Clean up stale active requests
+    for (const [key, request] of activeRequests.entries()) {
+        // Check if request is older than threshold
+        if (now - request.timestamp > staleThreshold) {
+            activeRequests.delete(key);
+            console.log(`Auto-cleared stale request: ${key}`);
+            clearedRequests++;
+            
+            // Also clear any associated lock
+            const postId = key.split(':')[0];
+            if (requestLocks.has(postId)) {
+                requestLocks.delete(postId);
+                console.log(`Auto-cleared associated lock for post #${postId}`);
+                clearedLocks++;
+            }
+        }
+    }
+    
+    if (clearedLocks > 0 || clearedRequests > 0) {
+        console.log(`Auto-cleanup completed: cleared ${clearedLocks} locks and ${clearedRequests} stale requests`);
+    }
+}
+
+// Run cleanup immediately on module load
+cleanupStaleLocks();
+
+// Then run cleanup every 5 minutes
+setInterval(cleanupStaleLocks, 5 * 60 * 1000);
+
 module.exports = {
     showDeclineModal,
     sendDeclineDM,
-    replyToOriginalMessage,
+    postDeclineNotification,
     processDecline,
     processAccept,
     sendAcceptDM,
     replyToOriginalMessageAndDisableButtons,
-    handleUndeletePost
+    handleUndeletePost,
+    activeRequests,
+    requestLocks
 };
