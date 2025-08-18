@@ -110,9 +110,20 @@ async function postDeclineNotification(channel, messageId, postId, reason, moder
             .setTimestamp()
             .setFooter({ text: 'e6AI Bot' });
 
+        // Create a "View Post" button
+        const viewPostButton = new ActionRowBuilder()
+            .addComponents(
+                new ButtonBuilder()
+                    .setLabel('View Post')
+                    .setURL(`https://e6ai.net/posts/${postId}`)
+                    .setStyle(ButtonStyle.Link)
+                    .setEmoji('🔗')
+            );
+
         // Send the notification to the channel
         await channel.send({
-            embeds: [declineEmbed]
+            embeds: [declineEmbed],
+            components: [viewPostButton]
         });
         
         console.log(`Request for post #${postId} declined by moderator ${moderatorId}`);
@@ -386,6 +397,9 @@ async function processAccept(interaction, client) {
         // Send accept DM to the user
         const dmSent = await sendAcceptDM(client, userId, postId);
         
+        // Post acceptance notification in the channel
+        const notificationSent = await postAcceptanceNotification(channel, postId, interaction.user.id, userId, 'accept');
+        
         // Reply to the original message and disable buttons
         const replySent = await replyToOriginalMessageAndDisableButtons(channel, originalMessage.id, postId, interaction.user.id);
 
@@ -632,6 +646,9 @@ async function handleUndeletePost(interaction, postId, moderatorId) {
         // Reply to the original message and disable buttons
         const replySent = await replyToOriginalMessageAndDisableButtons(channel, originalMessage.id, postId, moderatorId);
 
+        // Post acceptance notification in the channel
+        const notificationSent = await postAcceptanceNotification(channel, postId, moderatorId, originalUserId, 'undelete');
+
         // Send confirmation to the moderator first, before deleting the message
         let confirmationMessage = `✅ Post #${postId} has been undeleted and the replacement has been processed successfully!`;
         if (undeleteResult.warning) {
@@ -731,6 +748,57 @@ cleanupStaleLocks();
 // Then run cleanup every 5 minutes
 setInterval(cleanupStaleLocks, 5 * 60 * 1000);
 
+/**
+ * Posts an acceptance notification in the channel
+ * @param {Object} channel - The channel where to post the notification
+ * @param {string} postId - The post ID from the original request
+ * @param {string} moderatorId - The ID of the moderator who accepted the request
+ * @param {string} requesterId - The ID of the user who made the request
+ * @param {string} actionType - Type of action ('accept' or 'undelete')
+ * @returns {Promise<boolean>} - True if notification was sent successfully, false otherwise
+ */
+async function postAcceptanceNotification(channel, postId, moderatorId, requesterId, actionType = 'accept') {
+    try {
+        const actionEmoji = actionType === 'undelete' ? '🔄' : '✅';
+        const actionTitle = actionType === 'undelete' ? 'Post Undeleted & Replacement Processed' : 'Replacement Request Accepted';
+        
+        // Create an acceptance notification embed
+        const acceptEmbed = new EmbedBuilder()
+            .setColor(0x00ff00) // Green color
+            .setTitle(`${actionEmoji} ${actionTitle}`)
+            .setDescription(`${actionType === 'undelete' ? 'Post undeleted and replacement processed' : 'Replacement request processed'} for post #${postId} by <@${moderatorId}>`)
+            .addFields(
+                { name: 'Post ID', value: postId.toString(), inline: true },
+                { name: 'Requested by', value: `<@${requesterId}>`, inline: true },
+                { name: 'Status', value: 'Complete', inline: true }
+            )
+            .setTimestamp()
+            .setFooter({ text: 'e6AI Bot' });
+
+        // Create a "Visit Post" button
+        const visitPostButton = new ActionRowBuilder()
+            .addComponents(
+                new ButtonBuilder()
+                    .setLabel('Visit Post')
+                    .setURL(`https://e6ai.net/posts/${postId}`)
+                    .setStyle(ButtonStyle.Link)
+                    .setEmoji('🔗')
+            );
+
+        // Send the notification to the channel
+        await channel.send({
+            embeds: [acceptEmbed],
+            components: [visitPostButton]
+        });
+        
+        console.log(`${actionType} notification posted for post #${postId} by moderator ${moderatorId}`);
+        return true;
+    } catch (error) {
+        console.error(`Error posting ${actionType} notification for post ${postId}:`, error);
+        return false;
+    }
+}
+
 module.exports = {
     showDeclineModal,
     sendDeclineDM,
@@ -740,6 +808,7 @@ module.exports = {
     sendAcceptDM,
     replyToOriginalMessageAndDisableButtons,
     handleUndeletePost,
+    postAcceptanceNotification,
     activeRequests,
     requestLocks
 };
