@@ -5,6 +5,9 @@ const handleDecline = require('../utils/handleDecline');
 
 const { DiscordIDs = [] } = config;
 
+// Helper function for delays
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('requestreplace')
@@ -72,9 +75,50 @@ module.exports = {
             }
 
             const post = postResult.post;
-            const embed = postResult.embed;
 
-            // Create replacement request embed
+            // Get the replacement request channel
+            const channel = await interaction.client.channels.fetch(config.channels.replacementRequestChannel);
+            
+            if (!channel) {
+                return interaction.editReply({ content: '❌ Could not find the replacement request channel. Please contact a bot administrator.', ephemeral: true });
+            }
+
+            // 1. Send replacement image
+            const replacementImageEmbed = new EmbedBuilder()
+                .setTitle('REPLACEMENT IMAGE')
+                .setColor(0xFFA500) // Orange
+                .setImage(`attachment://${fileAttachment.name}`);
+
+            const replacementImageMessage = await channel.send({
+                embeds: [replacementImageEmbed],
+                files: [{
+                    attachment: fileAttachment.url,
+                    name: fileAttachment.name
+                }]
+            });
+
+            await delay(200);
+
+            // 2. Send original image
+            const filterTags = Array.isArray(config.tagsToFilter)
+                ? config.tagsToFilter.flatMap(tag => tag.split(',').map(t => t.trim()))
+                : [];
+            const shouldSpoiler = filterTags.length > 0 &&
+                post.tags?.general?.some(tag => filterTags.includes(tag));
+
+            let originalImageMessage = null;
+            if (post.file?.url && !post.flags?.deleted && !shouldSpoiler) {
+                const originalImageEmbed = new EmbedBuilder()
+                    .setTitle('ORIGINAL IMAGE:')
+                    .setURL(`https://e6ai.net/posts/${postId}`)
+                    .setImage(post.file.url)
+                    .setColor(0x0099ff); // Blue
+                originalImageMessage = await channel.send({ embeds: [originalImageEmbed] });
+            }
+
+            await delay(200);
+
+            // 3. Send main request embed with buttons
             const requestEmbed = new EmbedBuilder()
                 .setColor(0xff9900)
                 .setTitle('🔄 Replacement Request')
@@ -89,44 +133,15 @@ module.exports = {
                 .setThumbnail(interaction.user.displayAvatarURL())
                 .setTimestamp();
 
-            // Check if any filtered tags are present in the post's general tags
-            const filterTags = Array.isArray(config.tagsToFilter)
-                ? config.tagsToFilter.flatMap(tag => tag.split(',').map(t => t.trim()))
-                : [];
-            
-            const shouldSpoiler = filterTags.length > 0 &&
-                post.tags?.general?.some(tag => filterTags.includes(tag));
-            
-            // Add post image if available and not deleted
-            if (post.file?.url && !post.flags?.deleted) {
-                if (shouldSpoiler) {
-                    // For filtered posts, add the image URL as text instead of embedding it
-                    requestEmbed.addFields({
-                        name: 'Image URL (Filtered Content)',
-                        value: `|| ${post.file.url} ||`,
-                        inline: false
-                    });
-                    // Don't set the image for spoilered content
-                } else {
-                    requestEmbed.setImage(post.file.url);
-                }
-            }
-
-            // Create buttons
             const visitButton = new ButtonBuilder()
                 .setLabel('Visit post')
                 .setURL(`https://e6ai.net/posts/${postId}`)
                 .setStyle(ButtonStyle.Link)
                 .setEmoji('🔗');
 
-            // Create action row with visit button
-            const actionRow = new ActionRowBuilder()
-                .addComponents(visitButton);
+            const actionRow = new ActionRowBuilder().addComponents(visitButton);
 
-            // Add action row for moderator buttons
             let moderatorActionRow = null;
-
-            // Add decline and accept buttons if user is authorized (check config)
             if (DiscordIDs.length > 0) {
                 const declineButton = new ButtonBuilder()
                     .setCustomId(`decline_request:${postId}:${interaction.user.id}`)
@@ -140,30 +155,19 @@ module.exports = {
                     .setStyle(ButtonStyle.Success)
                     .setEmoji('✅');
 
-                moderatorActionRow = new ActionRowBuilder()
-                    .addComponents(declineButton, acceptButton);
+                moderatorActionRow = new ActionRowBuilder().addComponents(declineButton, acceptButton);
             }
 
-            // Get the replacement request channel
-            const channel = await interaction.client.channels.fetch(config.channels.replacementRequestChannel);
-            
-            if (!channel) {
-                return interaction.editReply({ content: '❌ Could not find the replacement request channel. Please contact a bot administrator.', ephemeral: true });
-            }
-
-            // Send the request to the channel with the file attachment and buttons
-            const requestMessage = await channel.send({
+            const mainMessage = await channel.send({
                 embeds: [requestEmbed],
-                components: [actionRow, ...(moderatorActionRow ? [moderatorActionRow] : [])],
-                files: [{
-                    attachment: fileAttachment.url,
-                    name: fileAttachment.name
-                }]
+                components: [actionRow, ...(moderatorActionRow ? [moderatorActionRow] : [])]
             });
 
-            // Track this active request
+            // Track this active request with all message IDs
             handleDecline.activeRequests.set(requestKey, {
-                messageId: requestMessage.id,
+                mainMessageId: mainMessage.id,
+                replacementImageMessageId: replacementImageMessage.id,
+                originalImageMessageId: originalImageMessage ? originalImageMessage.id : null,
                 timestamp: Date.now(),
                 status: 'pending',
                 channelId: channel.id
@@ -171,7 +175,7 @@ module.exports = {
 
             // Send confirmation to the user
             await interaction.editReply({
-                content: `✅ Your replacement request for post #${postId} has been submitted successfully! The file has been attached to the request message.\n\nPlease be patient as you will receive a message when a Janitor gets to your request.`,
+                content: `✅ Your replacement request for post #${postId} has been submitted successfully! The file has been attached to the request message.\n\nPlease be patient as you will receive a message when a Janitor gets to your request.`, 
                 ephemeral: true
             });
 
