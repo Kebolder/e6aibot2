@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder, InteractionContextType, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, InteractionContextType, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } = require('discord.js');
 const config = require('../../config.json');
 const fetchPost = require('../utils/fetchPost');
 const handleDecline = require('../utils/handleDecline');
@@ -33,12 +33,12 @@ module.exports = {
 
         // Validate postId is numeric
         if (!/^\d+$/.test(postId)) {
-            return interaction.reply({ content: '❌ Post ID must be a valid number', ephemeral: true });
+            return interaction.reply({ content: '❌ Post ID must be a valid number', flags: MessageFlags.Ephemeral });
         }
 
         // Check if replacement request channel is configured
         if (!config.channels || !config.channels.replacementRequestChannel) {
-            return interaction.reply({ content: '❌ Replacement request channel is not configured. Please contact a bot administrator.', ephemeral: true });
+            return interaction.reply({ content: '❌ Replacement request channel is not configured. Please contact a bot administrator.', flags: MessageFlags.Ephemeral });
         }
 
         // Check if there's already an active request for this post/user combination
@@ -48,7 +48,7 @@ module.exports = {
             if (existingRequest.status === 'pending' || Date.now() - existingRequest.timestamp < 300000) { // 5 minutes
                 return interaction.reply({
                     content: '❌ You already have an active replacement request for this post. Please wait for it to be processed or declined before making another request.',
-                    ephemeral: true
+                    flags: MessageFlags.Ephemeral
                 });
             }
         }
@@ -57,21 +57,21 @@ module.exports = {
         if (handleDecline.requestLocks.has(postId)) {
             return interaction.reply({
                 content: '❌ This post is currently being processed. Please wait a moment and try again.',
-                ephemeral: true
+                flags: MessageFlags.Ephemeral
             });
         }
 
         // Add lock for this post
         handleDecline.requestLocks.add(postId);
 
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         try {
             // Fetch the post to get its information
             const postResult = await fetchPost.getPost(postId);
             
             if (!postResult || !postResult.post) {
-                return interaction.editReply({ content: `❌ Could not find post with ID ${postId}`, ephemeral: true });
+                return interaction.editReply({ content: `❌ Could not find post with ID ${postId}` });
             }
 
             const post = postResult.post;
@@ -80,14 +80,15 @@ module.exports = {
             const channel = await interaction.client.channels.fetch(config.channels.replacementRequestChannel);
             
             if (!channel) {
-                return interaction.editReply({ content: '❌ Could not find the replacement request channel. Please contact a bot administrator.', ephemeral: true });
+                return interaction.editReply({ content: '❌ Could not find the replacement request channel. Please contact a bot administrator.' });
             }
 
             // 1. Send replacement image
             const replacementImageEmbed = new EmbedBuilder()
                 .setTitle('REPLACEMENT IMAGE')
                 .setColor(0xFFA500) // Orange
-                .setImage(`attachment://${fileAttachment.name}`);
+                .setImage(`attachment://${fileAttachment.name}`)
+                .setFooter({ text: `For Post ID: ${postId}` });
 
             const replacementImageMessage = await channel.send({
                 embeds: [replacementImageEmbed],
@@ -175,8 +176,7 @@ module.exports = {
 
             // Send confirmation to the user
             await interaction.editReply({
-                content: `✅ Your replacement request for post #${postId} has been submitted successfully! The file has been attached to the request message.\n\nPlease be patient as you will receive a message when a Janitor gets to your request.`, 
-                ephemeral: true
+                content: `✅ Your replacement request for post #${postId} has been submitted successfully! The file has been attached to the request message.\n\nPlease be patient as you will receive a message when a Janitor gets to your request.`
             });
 
             // Release lock after successful submission
@@ -197,7 +197,7 @@ module.exports = {
                 errorMessage += ` Error: ${error.message}`;
             }
             
-            await interaction.editReply({ content: errorMessage, ephemeral: true });
+            await interaction.editReply({ content: errorMessage });
         }
     },
 };

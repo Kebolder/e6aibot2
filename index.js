@@ -1,5 +1,5 @@
 // Require the necessary discord.js classes
-const { Client, Events, GatewayIntentBits } = require('discord.js');
+const { Client, Events, GatewayIntentBits, MessageFlags } = require('discord.js');
 require('dotenv').config();
 
 // Create a new client instance
@@ -146,9 +146,9 @@ client.on(Events.InteractionCreate, async interaction => {
         } catch (error) {
             console.error(`Error executing command ${interaction.commandName}:`, error);
             if (interaction.replied || interaction.deferred) {
-                await interaction.followUp({ content: '❌ There was an error while executing this command!', ephemeral: true });
+                await interaction.followUp({ content: '❌ There was an error while executing this command!', flags: MessageFlags.Ephemeral });
             } else {
-                await interaction.reply({ content: '❌ There was an error while executing this command!', ephemeral: true });
+                await interaction.reply({ content: '❌ There was an error while executing this command!', flags: MessageFlags.Ephemeral });
             }
         }
         return;
@@ -166,7 +166,7 @@ client.on(Events.InteractionCreate, async interaction => {
             if (interaction.customId.startsWith('decline_request:') || interaction.customId.startsWith('accept_request:')) {
                 return interaction.reply({
                     content: '❌ You are not authorized to use this button.',
-                    ephemeral: true
+                    flags: MessageFlags.Ephemeral
                 });
             }
         }
@@ -177,17 +177,19 @@ client.on(Events.InteractionCreate, async interaction => {
                 // Extract post ID and user ID from custom ID
                 const [, postId, userId] = interaction.customId.split(':');
                 
-                // Immediately disable buttons on the message
-                await disableButtonsOnMessage(interaction);
+                // Immediately disable buttons on the message (fire and forget)
+                disableButtonsOnMessage(interaction);
                 
                 // Show the decline modal
                 await handleDecline.showDeclineModal(interaction, postId, userId);
             } catch (error) {
                 console.error('Error handling decline button:', error);
-                await interaction.reply({
-                    content: '❌ An error occurred while processing your request.',
-                    ephemeral: true
-                });
+                if (!interaction.replied && !interaction.deferred) {
+                    await interaction.reply({
+                        content: '❌ An error occurred while processing your request.',
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
             }
             return;
         }
@@ -195,17 +197,19 @@ client.on(Events.InteractionCreate, async interaction => {
         // Handle accept button
         if (interaction.customId.startsWith('accept_request:')) {
             try {
-                // Immediately disable buttons on the message
-                await disableButtonsOnMessage(interaction);
+                // Immediately disable buttons on the message (fire and forget)
+                disableButtonsOnMessage(interaction);
                 
                 // Process the accept request directly
                 await handleDecline.processAccept(interaction, client);
             } catch (error) {
                 console.error('Error handling accept button:', error);
-                await interaction.reply({
-                    content: '❌ An error occurred while processing your request.',
-                    ephemeral: true
-                });
+                 if (!interaction.replied && !interaction.deferred) {
+                    await interaction.reply({
+                        content: '❌ An error occurred while processing your request.',
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
             }
             return;
         }
@@ -217,17 +221,19 @@ client.on(Events.InteractionCreate, async interaction => {
                 const customId = interaction.customId;
                 const [, postId, moderatorId] = customId.split(':');
                 
-                // Immediately disable buttons on the message
-                await disableButtonsOnMessage(interaction);
+                // Immediately disable buttons on the message (fire and forget)
+                disableButtonsOnMessage(interaction);
                 
                 // Process the undeletion
                 await handleDecline.handleUndeletePost(interaction, postId, moderatorId);
             } catch (error) {
                 console.error('Error handling undelete button:', error);
-                await interaction.reply({
-                    content: '❌ An error occurred while processing your request.',
-                    ephemeral: true
-                });
+                if (!interaction.replied && !interaction.deferred) {
+                    await interaction.reply({
+                        content: '❌ An error occurred while processing your request.',
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
             }
             return;
         }
@@ -246,10 +252,12 @@ client.on(Events.InteractionCreate, async interaction => {
                 await handleDecline.processDecline(interaction, client);
             } catch (error) {
                 console.error('Error processing decline modal:', error);
-                await interaction.reply({
-                    content: '❌ An error occurred while processing your decline request.',
-                    ephemeral: true
-                });
+                if (!interaction.replied && !interaction.deferred) {
+                    await interaction.reply({
+                        content: '❌ An error occurred while processing your decline request.',
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
             }
             return;
         }

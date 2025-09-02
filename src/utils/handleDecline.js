@@ -329,25 +329,52 @@ async function processAccept(interaction, client) {
             });
         }
 
-        // Extract the file URL from the original message
-        let fileUrl = null;
-        if (originalMessage.attachments.size > 0) {
-            const attachment = originalMessage.attachments.first();
-            fileUrl = attachment.url;
+        // --- New logic to find replacement file ---
+
+        // Find the replacement image message using the new method (with footer)
+        let replacementImageMessage = messages.find(msg =>
+            msg.author.id === client.user.id &&
+            msg.embeds.length > 0 &&
+            msg.embeds[0].title === 'REPLACEMENT IMAGE' &&
+            msg.embeds[0].footer?.text === `For Post ID: ${postId}`
+        );
+
+        if (!replacementImageMessage) {
+            // Fallback for older requests
+            console.log(`Could not find new replacement message for post #${postId}, trying fallback...`);
+            const messagesBefore = await channel.messages.fetch({ before: originalMessage.id, limit: 5 });
+            replacementImageMessage = messagesBefore.find(msg =>
+                msg.author.id === client.user.id &&
+                msg.embeds.length > 0 &&
+                (msg.embeds[0].title === 'REPLACEMENT IMAGE' || msg.embeds[0].title === 'REPLACEMENT IMAGE:') &&
+                msg.embeds[0].image?.url
+            );
         }
 
-        if (!fileUrl) {
+        if (!replacementImageMessage) {
             return interaction.editReply({
-                content: `❌ Could not find the replacement file in the original request for post #${postId}.`,
+                content: `❌ Could not find the replacement file in the original request for post #${postId}. The message may be too old or the bot might have been updated.`,
                 ephemeral: true
             });
         }
 
-        // Create a mock attachment object for the replacePost utility
+        const replacementEmbed = replacementImageMessage.embeds[0];
+        const imageUrl = replacementEmbed.image?.url;
+
+        if (!imageUrl) {
+            return interaction.editReply({
+                content: `❌ Could not find the replacement file in the original request for post #${postId}. The image URL was missing from the embed.`,
+                ephemeral: true
+            });
+        }
+
+        // Create a mock attachment object from the embed image URL
+        const url = new URL(imageUrl);
+        const name = url.pathname.split('/').pop();
         const imageAttachment = {
-            url: fileUrl,
-            name: originalMessage.attachments.first().name,
-            contentType: originalMessage.attachments.first().contentType || 'image/png'
+            url: imageUrl,
+            name: name,
+            contentType: 'image/png' // Assuming png, as we can't know for sure
         };
 
         // Check if the post is deleted
@@ -587,25 +614,52 @@ async function handleUndeletePost(interaction, postId, moderatorId) {
             throw new Error(undeleteResult.error || 'Failed to undelete post');
         }
 
-        // Extract the file URL from the original message
-        let fileUrl = null;
-        if (originalMessage.attachments.size > 0) {
-            const attachment = originalMessage.attachments.first();
-            fileUrl = attachment.url;
+        // --- New logic to find replacement file ---
+
+        // Find the replacement image message using the new method (with footer)
+        let replacementImageMessage = messages.find(msg =>
+            msg.author.id === client.user.id &&
+            msg.embeds.length > 0 &&
+            msg.embeds[0].title === 'REPLACEMENT IMAGE' &&
+            msg.embeds[0].footer?.text === `For Post ID: ${postId}`
+        );
+
+        if (!replacementImageMessage) {
+            // Fallback for older requests
+            console.log(`Could not find new replacement message for post #${postId}, trying fallback...`);
+            const messagesBefore = await channel.messages.fetch({ before: originalMessage.id, limit: 5 });
+            replacementImageMessage = messagesBefore.find(msg =>
+                msg.author.id === client.user.id &&
+                msg.embeds.length > 0 &&
+                (msg.embeds[0].title === 'REPLACEMENT IMAGE' || msg.embeds[0].title === 'REPLACEMENT IMAGE:') &&
+                msg.embeds[0].image?.url
+            );
         }
 
-        if (!fileUrl) {
+        if (!replacementImageMessage) {
             return interaction.editReply({
-                content: `❌ Could not find the replacement file in the original request for post #${postId}.`,
+                content: `❌ Could not find the replacement file in the original request for post #${postId}. The message may be too old or the bot might have been updated.`,
                 ephemeral: true
             });
         }
 
-        // Create a mock attachment object for the replacePost utility
+        const replacementEmbed = replacementImageMessage.embeds[0];
+        const imageUrl = replacementEmbed.image?.url;
+
+        if (!imageUrl) {
+            return interaction.editReply({
+                content: `❌ Could not find the replacement file in the original request for post #${postId}. The image URL was missing from the embed.`,
+                ephemeral: true
+            });
+        }
+
+        // Create a mock attachment object from the embed image URL
+        const url = new URL(imageUrl);
+        const name = url.pathname.split('/').pop();
         const imageAttachment = {
-            url: fileUrl,
-            name: originalMessage.attachments.first().name,
-            contentType: originalMessage.attachments.first().contentType || 'image/png'
+            url: imageUrl,
+            name: name,
+            contentType: 'image/png' // Assuming png, as we can't know for sure
         };
 
         // Process the replacement using the replacePost utility
