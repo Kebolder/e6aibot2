@@ -349,7 +349,7 @@ async function processAccept(interaction, client) {
             console.log(`Could not find new replacement message for post #${postId}, trying fallback...`);
             const messagesBefore = await channel.messages.fetch({ before: originalMessage.id, limit: 5 });
             replacementImageMessage = messagesBefore.find(msg =>
-                msg.author.id === client.user.id &&
+                msg.author.id === interaction.client.user.id &&
                 msg.embeds.length > 0 &&
                 (msg.embeds[0].title === 'REPLACEMENT IMAGE' || msg.embeds[0].title === 'REPLACEMENT IMAGE:') &&
                 msg.embeds[0].image?.url
@@ -628,7 +628,7 @@ async function handleUndeletePost(interaction, postId, moderatorId) {
 
         // Find the replacement image message using the new method (with footer)
         let replacementImageMessage = messages.find(msg =>
-            msg.author.id === client.user.id &&
+            msg.author.id === interaction.client.user.id &&
             msg.embeds.length > 0 &&
             msg.embeds[0].title === 'REPLACEMENT IMAGE' &&
             msg.embeds[0].footer?.text === `For Post ID: ${postId}`
@@ -639,7 +639,7 @@ async function handleUndeletePost(interaction, postId, moderatorId) {
             console.log(`Could not find new replacement message for post #${postId}, trying fallback...`);
             const messagesBefore = await channel.messages.fetch({ before: originalMessage.id, limit: 5 });
             replacementImageMessage = messagesBefore.find(msg =>
-                msg.author.id === client.user.id &&
+                msg.author.id === interaction.client.user.id &&
                 msg.embeds.length > 0 &&
                 (msg.embeds[0].title === 'REPLACEMENT IMAGE' || msg.embeds[0].title === 'REPLACEMENT IMAGE:') &&
                 msg.embeds[0].image?.url
