@@ -80,7 +80,12 @@ async function sendDeclineDM(client, userId, postId, reason) {
         });
         return true;
     } catch (error) {
-        console.error(`Error sending decline DM to user ${userId}:`, error);
+        // Handle specific DM blocking error more gracefully
+        if (error.code === 50007) {
+            console.log(`Cannot DM user ${userId} - they have DMs disabled or have blocked the bot`);
+        } else {
+            console.error(`Error sending decline DM to user ${userId}:`, error);
+        }
         return false;
     }
 }
@@ -518,7 +523,12 @@ async function sendAcceptDM(client, userId, postId) {
         });
         return true;
     } catch (error) {
-        console.error(`Error sending accept DM to user ${userId}:`, error);
+        // Handle specific DM blocking error more gracefully
+        if (error.code === 50007) {
+            console.log(`Cannot DM user ${userId} - they have DMs disabled or have blocked the bot`);
+        } else {
+            console.error(`Error sending accept DM to user ${userId}:`, error);
+        }
         return false;
     }
 }
