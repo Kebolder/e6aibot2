@@ -163,7 +163,7 @@ async function processDecline(interaction, client) {
             });
         }
 
-        const channel = await client.channels.fetch(config.channels.replacementRequestChannel);
+        const channel = await interaction.client.channels.fetch(config.channels.replacementRequestChannel);
         
         if (!channel) {
             return interaction.editReply({ 
@@ -287,7 +287,7 @@ async function processAccept(interaction, client) {
             });
         }
 
-        const channel = await client.channels.fetch(config.channels.replacementRequestChannel);
+        const channel = await interaction.client.channels.fetch(config.channels.replacementRequestChannel);
         
         if (!channel) {
             return interaction.editReply({
@@ -338,7 +338,7 @@ async function processAccept(interaction, client) {
 
         // Find the replacement image message using the new method (with footer)
         let replacementImageMessage = messages.find(msg =>
-            msg.author.id === client.user.id &&
+            msg.author.id === interaction.client.user.id &&
             msg.embeds.length > 0 &&
             msg.embeds[0].title === 'REPLACEMENT IMAGE' &&
             msg.embeds[0].footer?.text === `For Post ID: ${postId}`
@@ -700,7 +700,6 @@ async function handleUndeletePost(interaction, postId, moderatorId) {
 
         if (originalUserId) {
             try {
-                const sendAcceptDM = require('./handleDecline').sendAcceptDM;
                 await sendAcceptDM(interaction.client, originalUserId, postId);
             } catch (dmError) {
                 console.error(`Failed to send DM to user ${originalUserId}:`, dmError);
