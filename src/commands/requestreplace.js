@@ -2,11 +2,10 @@ const { SlashCommandBuilder, EmbedBuilder, InteractionContextType, ActionRowBuil
 const config = require('../../config.json');
 const fetchPost = require('../utils/fetchPost');
 const handleDecline = require('../utils/handleDecline');
+const { validateFileSize, validateFileType, sendMessageSafely, editInteractionSafely, fetchChannelSafely, delay } = require('../utils/discordRetry');
 
 const { DiscordIDs = [] } = config;
 
-// Helper function for delays
-const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -34,6 +33,18 @@ module.exports = {
         // Validate postId is numeric
         if (!/^\d+$/.test(postId)) {
             return interaction.reply({ content: '❌ Post ID must be a valid number', flags: MessageFlags.Ephemeral });
+        }
+
+        // Validate file size
+        const fileSizeValidation = validateFileSize(fileAttachment);
+        if (!fileSizeValidation.valid) {
+            return interaction.reply({ content: `❌ ${fileSizeValidation.message}`, flags: MessageFlags.Ephemeral });
+        }
+
+        // Validate file type
+        const fileTypeValidation = validateFileType(fileAttachment);
+        if (!fileTypeValidation.valid) {
+            return interaction.reply({ content: `❌ ${fileTypeValidation.message}`, flags: MessageFlags.Ephemeral });
         }
 
         // Check if replacement request channel is configured
@@ -71,16 +82,16 @@ module.exports = {
             const postResult = await fetchPost.getPost(postId);
             
             if (!postResult || !postResult.post) {
-                return interaction.editReply({ content: `❌ Could not find post with ID ${postId}` });
+                return editInteractionSafely(interaction, { content: `❌ Could not find post with ID ${postId}` });
             }
 
             const post = postResult.post;
 
-            // Get the replacement request channel
-            const channel = await interaction.client.channels.fetch(config.channels.replacementRequestChannel);
+            // Get the replacement request channel with retry logic
+            const channel = await fetchChannelSafely(interaction.client, config.channels.replacementRequestChannel);
             
             if (!channel) {
-                return interaction.editReply({ content: '❌ Could not find the replacement request channel. Please contact a bot administrator.' });
+                return editInteractionSafely(interaction, { content: '❌ Could not find the replacement request channel. Please contact a bot administrator.' });
             }
 
             // 1. Send replacement image
@@ -90,7 +101,7 @@ module.exports = {
                 .setImage(`attachment://${fileAttachment.name}`)
                 .setFooter({ text: `For Post ID: ${postId}` });
 
-            const replacementImageMessage = await channel.send({
+            const replacementImageMessage = await sendMessageSafely(channel, {
                 embeds: [replacementImageEmbed],
                 files: [{
                     attachment: fileAttachment.url,
@@ -114,7 +125,7 @@ module.exports = {
                     .setURL(`https://e6ai.net/posts/${postId}`)
                     .setImage(post.file.url)
                     .setColor(0x0099ff); // Blue
-                originalImageMessage = await channel.send({ embeds: [originalImageEmbed] });
+                originalImageMessage = await sendMessageSafely(channel, { embeds: [originalImageEmbed] });
             }
 
             await delay(200);
@@ -159,7 +170,7 @@ module.exports = {
                 moderatorActionRow = new ActionRowBuilder().addComponents(declineButton, acceptButton);
             }
 
-            const mainMessage = await channel.send({
+            const mainMessage = await sendMessageSafely(channel, {
                 embeds: [requestEmbed],
                 components: [actionRow, ...(moderatorActionRow ? [moderatorActionRow] : [])]
             });
@@ -175,7 +186,7 @@ module.exports = {
             });
 
             // Send confirmation to the user
-            await interaction.editReply({
+            await editInteractionSafely(interaction, {
                 content: `✅ Your replacement request for post #${postId} has been submitted successfully! The file has been attached to the request message.\n\nPlease be patient as you will receive a message when a Janitor gets to your request.`
             });
 
@@ -193,11 +204,15 @@ module.exports = {
                 errorMessage = `❌ Post ${postId} not found on e6AI`;
             } else if (error.message.includes('Access denied')) {
                 errorMessage = '❌ Access denied - unable to fetch post information';
+            } else if (error.name === 'AbortError' || error.message.includes('aborted')) {
+                errorMessage = '❌ Request timed out. This may be due to a large file size or network issues. Please try again with a smaller file.';
+            } else if (error.code === 40005) {
+                errorMessage = '❌ File too large. Discord has a file size limit. Please use a smaller image.';
             } else {
                 errorMessage += ` Error: ${error.message}`;
             }
             
-            await interaction.editReply({ content: errorMessage });
+            await editInteractionSafely(interaction, { content: errorMessage });
         }
     },
 };

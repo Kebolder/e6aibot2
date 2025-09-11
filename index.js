@@ -2,13 +2,17 @@
 const { Client, Events, GatewayIntentBits, MessageFlags } = require('discord.js');
 require('dotenv').config();
 
-// Create a new client instance
+// Create a new client instance with REST timeout configuration
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent
-    ]
+    ],
+    rest: {
+        timeout: 60000, // 60 seconds timeout for REST requests
+        retries: 3      // Retry failed requests up to 3 times
+    }
 });
 
 // Import the LinkListener
