@@ -3,6 +3,7 @@ const config = require('../../config.json');
 const fetchPost = require('../utils/fetchPost');
 const handleDecline = require('../utils/handleDecline');
 const { validateFileSize, validateFileType, sendMessageSafely, editInteractionSafely, fetchChannelSafely, delay } = require('../utils/discordRetry');
+const rateLimiter = require('../utils/rateLimiter');
 
 const { DiscordIDs = [] } = config;
 
@@ -29,6 +30,15 @@ module.exports = {
         const postId = interaction.options.getString('post_id');
         const fileAttachment = interaction.options.getAttachment('file');
         const reason = interaction.options.getString('reason');
+
+        // Check rate limit (10 minutes)
+        if (rateLimiter.isRateLimited(interaction.user.id)) {
+            const remainingTime = rateLimiter.formatRemainingTime(interaction.user.id);
+            return interaction.reply({
+                content: `❌ You're on a cooldown! Please wait ${remainingTime} before making another replacement request.`,
+                flags: MessageFlags.Ephemeral
+            });
+        }
 
         // Validate postId is numeric
         if (!/^\d+$/.test(postId)) {
@@ -184,6 +194,9 @@ module.exports = {
                 status: 'pending',
                 channelId: channel.id
             });
+
+            // Set rate limit for user (10 minutes)
+            await rateLimiter.setRateLimit(interaction.user.id, 600000);
 
             // Send confirmation to the user
             await editInteractionSafely(interaction, {

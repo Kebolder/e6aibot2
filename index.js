@@ -21,6 +21,9 @@ const LinkListener = require('./src/commands/LinkListener');
 // Import config
 const config = require('./config.json');
 
+// Import rate limiter
+const rateLimiter = require('./src/utils/rateLimiter');
+
 // Create LinkListener instance
 const linkListener = new LinkListener();
 
@@ -32,39 +35,47 @@ client.once(Events.ClientReady, async readyClient => {
     console.log(`Ready! Logged in as ${readyClient.user.tag}`);
     console.log(`Bot ID: ${readyClient.user.id}`);
     console.log(`Owner ID: ${process.env.OWNER_ID}`);
-    
+
+    // Initialize rate limiter
+    await rateLimiter.initialize();
+    console.log('Rate limiter initialized');
+
     // Deploy commands
     await deployCommands.execute(readyClient);
-    
+
     console.log('LinkListener initialized - watching for e6ai.net links');
-    
+
 });
 
 // Handle graceful shutdown
 process.on('SIGINT', async () => {
     console.log('\nReceived SIGINT - shutting down gracefully...');
-    
-    
+
+    // Shutdown rate limiter
+    await rateLimiter.shutdown();
+
     // Destroy Discord client
     if (client) {
         console.log('Destroying Discord client...');
         await client.destroy();
     }
-    
+
     console.log('Bot shutdown complete');
     process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
     console.log('\nReceived SIGTERM - shutting down gracefully...');
-    
-    
+
+    // Shutdown rate limiter
+    await rateLimiter.shutdown();
+
     // Destroy Discord client
     if (client) {
         console.log('Destroying Discord client...');
         await client.destroy();
     }
-    
+
     console.log('Bot shutdown complete');
     process.exit(0);
 });

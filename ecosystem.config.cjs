@@ -29,7 +29,7 @@ module.exports = {
       host: "raspberrypi.local",
       ref: "origin/main",
       repo: "https://github.com/Kebolder/e6aibot2.git",
-      path: "/home/kebolder/discord/roleplaybot",
+      path: "/home/kebolder/discord/e6aibot2",
       "post-deploy": "npm install && pm2 reload ecosystem.config.cjs"
     }
   }
