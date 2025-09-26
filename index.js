@@ -24,6 +24,9 @@ const config = require('./config.json');
 // Import rate limiter
 const rateLimiter = require('./src/utils/rateLimiter');
 
+// Import knowledge base database
+const knowledgeBaseDB = require('./src/utils/database');
+
 // Create LinkListener instance
 const linkListener = new LinkListener();
 
@@ -54,6 +57,9 @@ process.on('SIGINT', async () => {
     // Shutdown rate limiter
     await rateLimiter.shutdown();
 
+    // Close knowledge base database
+    knowledgeBaseDB.close();
+
     // Destroy Discord client
     if (client) {
         console.log('Destroying Discord client...');
@@ -69,6 +75,9 @@ process.on('SIGTERM', async () => {
 
     // Shutdown rate limiter
     await rateLimiter.shutdown();
+
+    // Close knowledge base database
+    knowledgeBaseDB.close();
 
     // Destroy Discord client
     if (client) {
@@ -147,15 +156,32 @@ async function disableButtonsOnMessage(interaction) {
 
 // Handle interactions (slash commands, buttons, modals)
 client.on(Events.InteractionCreate, async interaction => {
+    // Handle autocomplete interactions
+    if (interaction.isAutocomplete()) {
+        const command = interaction.client.commands.get(interaction.commandName);
+
+        if (!command || !command.autocomplete) {
+            console.error(`Autocomplete for command ${interaction.commandName} not found`);
+            return;
+        }
+
+        try {
+            await command.autocomplete(interaction);
+        } catch (error) {
+            console.error(`Error handling autocomplete for ${interaction.commandName}:`, error);
+        }
+        return;
+    }
+
     // Handle slash command interactions
     if (interaction.isChatInputCommand()) {
         const command = interaction.client.commands.get(interaction.commandName);
-        
+
         if (!command) {
             console.error(`Command ${interaction.commandName} not found`);
             return;
         }
-        
+
         try {
             await command.execute(interaction);
         } catch (error) {
@@ -253,6 +279,35 @@ client.on(Events.InteractionCreate, async interaction => {
             return;
         }
 
+        // Handle copy knowledge base text button
+        if (interaction.customId.startsWith('copy_kb_text:')) {
+            try {
+                const simpleName = interaction.customId.split(':')[1];
+                const result = knowledgeBaseDB.getEntry(simpleName);
+
+                if (result.success) {
+                    await interaction.reply({
+                        content: `**${result.entry.title}**\n\n${result.entry.body}`,
+                        flags: MessageFlags.Ephemeral
+                    });
+                } else {
+                    await interaction.reply({
+                        content: '❌ Knowledge base entry not found.',
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
+            } catch (error) {
+                console.error('Error handling copy text button:', error);
+                if (!interaction.replied && !interaction.deferred) {
+                    await interaction.reply({
+                        content: '❌ An error occurred while retrieving the text.',
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
+            }
+            return;
+        }
+
         // Handle other buttons here if needed
         return;
     }
@@ -262,7 +317,7 @@ client.on(Events.InteractionCreate, async interaction => {
         // Handle decline reason modal
         if (interaction.customId.startsWith('decline_reason:')) {
             const handleDecline = require('./src/utils/handleDecline');
-            
+
             try {
                 await handleDecline.processDecline(interaction, client);
             } catch (error) {
@@ -270,6 +325,73 @@ client.on(Events.InteractionCreate, async interaction => {
                 if (!interaction.replied && !interaction.deferred) {
                     await interaction.reply({
                         content: '❌ An error occurred while processing your decline request.',
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
+            }
+            return;
+        }
+
+        // Handle knowledge base add modal
+        if (interaction.customId === 'kb_add_modal') {
+            try {
+                const simpleName = interaction.fields.getTextInputValue('kb_simple_name');
+                const title = interaction.fields.getTextInputValue('kb_title');
+                const body = interaction.fields.getTextInputValue('kb_body');
+                const imageUrl = interaction.fields.getTextInputValue('kb_image');
+
+                const result = knowledgeBaseDB.addEntry(simpleName, title, body, imageUrl, interaction.user.id);
+
+                if (result.success) {
+                    await interaction.reply({
+                        content: `✅ Knowledge base entry "${simpleName}" has been added successfully!`,
+                        flags: MessageFlags.Ephemeral
+                    });
+                } else {
+                    await interaction.reply({
+                        content: `❌ ${result.error}`,
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
+            } catch (error) {
+                console.error('Error processing knowledge base add modal:', error);
+                if (!interaction.replied && !interaction.deferred) {
+                    await interaction.reply({
+                        content: '❌ An error occurred while adding the knowledge base entry.',
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
+            }
+            return;
+        }
+
+        // Handle knowledge base edit modal
+        if (interaction.customId.startsWith('kb_edit_modal:')) {
+            try {
+                const oldSimpleName = interaction.customId.split(':')[1];
+                const newSimpleName = interaction.fields.getTextInputValue('kb_simple_name');
+                const title = interaction.fields.getTextInputValue('kb_title');
+                const body = interaction.fields.getTextInputValue('kb_body');
+                const imageUrl = interaction.fields.getTextInputValue('kb_image');
+
+                const result = knowledgeBaseDB.updateEntry(oldSimpleName, newSimpleName, title, body, imageUrl, interaction.user.id);
+
+                if (result.success) {
+                    await interaction.reply({
+                        content: `✅ Knowledge base entry "${newSimpleName}" has been updated successfully!`,
+                        flags: MessageFlags.Ephemeral
+                    });
+                } else {
+                    await interaction.reply({
+                        content: `❌ ${result.error}`,
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
+            } catch (error) {
+                console.error('Error processing knowledge base edit modal:', error);
+                if (!interaction.replied && !interaction.deferred) {
+                    await interaction.reply({
+                        content: '❌ An error occurred while updating the knowledge base entry.',
                         flags: MessageFlags.Ephemeral
                     });
                 }
