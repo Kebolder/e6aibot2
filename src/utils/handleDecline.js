@@ -229,16 +229,50 @@ async function processDecline(interaction, client) {
             content: confirmationMessage,
             ephemeral: true
         })
-        
-        // Clean up the original request message and update request status
+
+        // Clean up the original request message and associated images
         try {
             await originalMessage.delete();
             console.log(`Cleaned up replacement request message for post #${postId}`);
-            
+
+            // Find and delete the replacement image message
+            try {
+                const replacementImageMessage = messages.find(msg =>
+                    msg.author.id === interaction.client.user.id &&
+                    msg.embeds.length > 0 &&
+                    msg.embeds[0].title === 'REPLACEMENT IMAGE' &&
+                    msg.embeds[0].footer?.text === `For Post ID: ${postId}`
+                );
+
+                if (replacementImageMessage) {
+                    await replacementImageMessage.delete();
+                    console.log(`Cleaned up replacement image message for post #${postId}`);
+                }
+            } catch (imgError) {
+                console.warn(`Failed to delete replacement image message for post #${postId}:`, imgError.message);
+            }
+
+            // Find and delete the original image message if it exists
+            try {
+                const originalImageMessage = messages.find(msg =>
+                    msg.author.id === interaction.client.user.id &&
+                    msg.embeds.length > 0 &&
+                    (msg.embeds[0].title === 'ORIGINAL IMAGE:' || msg.embeds[0].title === 'ORIGINAL IMAGE (DELETED):') &&
+                    msg.embeds[0].url === `https://e6ai.net/posts/${postId}`
+                );
+
+                if (originalImageMessage) {
+                    await originalImageMessage.delete();
+                    console.log(`Cleaned up original image message for post #${postId}`);
+                }
+            } catch (origImgError) {
+                console.warn(`Failed to delete original image message for post #${postId}:`, origImgError.message);
+            }
+
             // Remove from active requests and release lock
             const requestKey = `${postId}:${userId}`;
             activeRequests.delete(requestKey);
-            
+
             // Release the lock on this post
             if (requestLocks.has(postId)) {
                 requestLocks.delete(postId);
@@ -448,16 +482,43 @@ async function processAccept(interaction, client) {
             content: confirmationMessage,
             ephemeral: true
         });
-        
-        // Clean up the original request message and update request status
+
+        // Clean up the original request message and associated images
         try {
             await originalMessage.delete();
             console.log(`Cleaned up replacement request message for post #${postId}`);
-            
+
+            // Also delete the replacement image message
+            if (replacementImageMessage) {
+                try {
+                    await replacementImageMessage.delete();
+                    console.log(`Cleaned up replacement image message for post #${postId}`);
+                } catch (imgError) {
+                    console.warn(`Failed to delete replacement image message for post #${postId}:`, imgError.message);
+                }
+            }
+
+            // Find and delete the original image message if it exists
+            try {
+                const originalImageMessage = messages.find(msg =>
+                    msg.author.id === interaction.client.user.id &&
+                    msg.embeds.length > 0 &&
+                    (msg.embeds[0].title === 'ORIGINAL IMAGE:' || msg.embeds[0].title === 'ORIGINAL IMAGE (DELETED):') &&
+                    msg.embeds[0].url === `https://e6ai.net/posts/${postId}`
+                );
+
+                if (originalImageMessage) {
+                    await originalImageMessage.delete();
+                    console.log(`Cleaned up original image message for post #${postId}`);
+                }
+            } catch (origImgError) {
+                console.warn(`Failed to delete original image message for post #${postId}:`, origImgError.message);
+            }
+
             // Remove from active requests and release lock
             const requestKey = `${postId}:${userId}`;
             activeRequests.delete(requestKey);
-            
+
             // Release the lock on this post
             if (requestLocks.has(postId)) {
                 requestLocks.delete(postId);
@@ -726,10 +787,37 @@ async function handleUndeletePost(interaction, postId, moderatorId) {
             ephemeral: true
         });
         
-        // Clean up the original request message
+        // Clean up the original request message and associated images
         try {
             await originalMessage.delete();
             console.log(`Cleaned up replacement request message for post #${postId}`);
+
+            // Also delete the replacement image message
+            if (replacementImageMessage) {
+                try {
+                    await replacementImageMessage.delete();
+                    console.log(`Cleaned up replacement image message for post #${postId}`);
+                } catch (imgError) {
+                    console.warn(`Failed to delete replacement image message for post #${postId}:`, imgError.message);
+                }
+            }
+
+            // Find and delete the original image message if it exists
+            try {
+                const originalImageMessage = messages.find(msg =>
+                    msg.author.id === interaction.client.user.id &&
+                    msg.embeds.length > 0 &&
+                    (msg.embeds[0].title === 'ORIGINAL IMAGE:' || msg.embeds[0].title === 'ORIGINAL IMAGE (DELETED):') &&
+                    msg.embeds[0].url === `https://e6ai.net/posts/${postId}`
+                );
+
+                if (originalImageMessage) {
+                    await originalImageMessage.delete();
+                    console.log(`Cleaned up original image message for post #${postId}`);
+                }
+            } catch (origImgError) {
+                console.warn(`Failed to delete original image message for post #${postId}:`, origImgError.message);
+            }
         } catch (cleanupError) {
             console.warn(`Failed to clean up original request message for post #${postId}:`, cleanupError.message);
         }

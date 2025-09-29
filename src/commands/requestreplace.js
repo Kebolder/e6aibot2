@@ -129,12 +129,13 @@ module.exports = {
                 post.tags?.general?.some(tag => filterTags.includes(tag));
 
             let originalImageMessage = null;
-            if (post.file?.url && !post.flags?.deleted && !shouldSpoiler) {
+            if (post.file?.url && !shouldSpoiler) {
+                const isDeleted = post.flags?.deleted;
                 const originalImageEmbed = new EmbedBuilder()
-                    .setTitle('ORIGINAL IMAGE:')
+                    .setTitle(isDeleted ? 'ORIGINAL IMAGE (DELETED):' : 'ORIGINAL IMAGE:')
                     .setURL(`https://e6ai.net/posts/${postId}`)
                     .setImage(post.file.url)
-                    .setColor(0x0099ff); // Blue
+                    .setColor(isDeleted ? 0xff0000 : 0x0099ff); // Red for deleted, Blue for normal
                 originalImageMessage = await sendMessageSafely(channel, { embeds: [originalImageEmbed] });
             }
 
