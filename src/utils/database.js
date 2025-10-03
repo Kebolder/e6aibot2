@@ -48,6 +48,17 @@ class KnowledgeBaseDB {
                 console.error('Error adding image_url column:', error);
             }
         }
+
+        // Create link listener channels table
+        const createLinkListenerSQL = `
+            CREATE TABLE IF NOT EXISTS link_listener_channels (
+                channel_id TEXT PRIMARY KEY,
+                enabled BOOLEAN NOT NULL DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        `;
+
+        this.db.exec(createLinkListenerSQL);
     }
 
     addEntry(simpleName, title, body, imageUrl, createdBy) {
@@ -137,6 +148,44 @@ class KnowledgeBaseDB {
                 return { success: false, error: 'A knowledge base entry with that name already exists.' };
             }
             return { success: false, error: error.message };
+        }
+    }
+
+    toggleLinkListener(channelId) {
+        this.initialize();
+        try {
+            // Check if channel exists
+            const checkStmt = this.db.prepare('SELECT enabled FROM link_listener_channels WHERE channel_id = ?');
+            const existing = checkStmt.get(channelId);
+
+            if (existing) {
+                // Toggle the existing value
+                const newValue = existing.enabled ? 0 : 1;
+                const updateStmt = this.db.prepare('UPDATE link_listener_channels SET enabled = ? WHERE channel_id = ?');
+                updateStmt.run(newValue, channelId);
+                return { success: true, enabled: newValue === 1 };
+            } else {
+                // Insert new channel as enabled
+                const insertStmt = this.db.prepare('INSERT INTO link_listener_channels (channel_id, enabled) VALUES (?, 1)');
+                insertStmt.run(channelId);
+                return { success: true, enabled: true };
+            }
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    isLinkListenerEnabled(channelId) {
+        this.initialize();
+        try {
+            const stmt = this.db.prepare('SELECT enabled FROM link_listener_channels WHERE channel_id = ?');
+            const result = stmt.get(channelId);
+
+            // If no entry exists, return false (disabled by default)
+            return result ? result.enabled === 1 : false;
+        } catch (error) {
+            console.error('Error checking link listener status:', error);
+            return false;
         }
     }
 

@@ -1,15 +1,19 @@
 const fetchPost = require('../utils/fetchPost');
+const database = require('../utils/database');
 
 class LinkListener {
   constructor() {
     this.processedMessages = new Set();
   }
-  
+
   async handleMessage(message) {
     // Ignore bot messages and messages we've already processed
     if (message.author.bot || this.processedMessages.has(message.id)) return;
     this.processedMessages.add(message.id);
-    
+
+    // Check if link listening is enabled for this channel
+    if (!database.isLinkListenerEnabled(message.channel.id)) return;
+
     // Extract e6AI post IDs from message
     const postIds = this.extractPostIds(message.content);
     
