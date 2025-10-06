@@ -16,20 +16,41 @@ module.exports = {
             option.setName('post_id')
                 .setDescription('The ID of the post to request replacement for.')
                 .setRequired(true))
-        .addAttachmentOption(option =>
-            option.setName('file')
-                .setDescription('The replacement file to upload.')
-                .setRequired(true))
         .addStringOption(option =>
             option.setName('reason')
                 .setDescription('The reason for the replacement request.')
                 .setRequired(true))
+        .addAttachmentOption(option =>
+            option.setName('file')
+                .setDescription('The replacement file to upload.')
+                .setRequired(false))
+        .addStringOption(option =>
+            option.setName('image_url')
+                .setDescription('Direct link to replacement image (alternative to file upload).')
+                .setRequired(false))
         .setContexts([InteractionContextType.Guild, InteractionContextType.BotDM, InteractionContextType.PrivateChannel]),
 
     async execute(interaction) {
         const postId = interaction.options.getString('post_id');
         const fileAttachment = interaction.options.getAttachment('file');
+        const imageUrl = interaction.options.getString('image_url');
         const reason = interaction.options.getString('reason');
+
+        // Validate that either file or image_url is provided
+        if (!fileAttachment && !imageUrl) {
+            return interaction.reply({
+                content: '❌ You must provide either a file upload or an image URL.',
+                flags: MessageFlags.Ephemeral
+            });
+        }
+
+        // Validate that both are not provided
+        if (fileAttachment && imageUrl) {
+            return interaction.reply({
+                content: '❌ Please provide either a file upload OR an image URL, not both.',
+                flags: MessageFlags.Ephemeral
+            });
+        }
 
         // Check rate limit (10 minutes)
         if (rateLimiter.isRateLimited(interaction.user.id)) {
@@ -45,16 +66,41 @@ module.exports = {
             return interaction.reply({ content: '❌ Post ID must be a valid number', flags: MessageFlags.Ephemeral });
         }
 
-        // Validate file size
-        const fileSizeValidation = validateFileSize(fileAttachment);
-        if (!fileSizeValidation.valid) {
-            return interaction.reply({ content: `❌ ${fileSizeValidation.message}`, flags: MessageFlags.Ephemeral });
+        // Validate file if attachment is provided
+        if (fileAttachment) {
+            // Validate file size
+            const fileSizeValidation = validateFileSize(fileAttachment);
+            if (!fileSizeValidation.valid) {
+                return interaction.reply({ content: `❌ ${fileSizeValidation.message}`, flags: MessageFlags.Ephemeral });
+            }
+
+            // Validate file type
+            const fileTypeValidation = validateFileType(fileAttachment);
+            if (!fileTypeValidation.valid) {
+                return interaction.reply({ content: `❌ ${fileTypeValidation.message}`, flags: MessageFlags.Ephemeral });
+            }
         }
 
-        // Validate file type
-        const fileTypeValidation = validateFileType(fileAttachment);
-        if (!fileTypeValidation.valid) {
-            return interaction.reply({ content: `❌ ${fileTypeValidation.message}`, flags: MessageFlags.Ephemeral });
+        // Validate image URL if provided
+        if (imageUrl) {
+            try {
+                const url = new URL(imageUrl);
+                // Basic validation for common image extensions
+                const validExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+                const hasValidExtension = validExtensions.some(ext => url.pathname.toLowerCase().endsWith(ext));
+
+                if (!hasValidExtension && !url.hostname.includes('discord')) {
+                    return interaction.reply({
+                        content: '❌ URL must point to a valid image file (.jpg, .jpeg, .png, .gif, .webp) or be a Discord CDN link.',
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
+            } catch (error) {
+                return interaction.reply({
+                    content: '❌ Invalid URL provided. Please provide a valid image URL.',
+                    flags: MessageFlags.Ephemeral
+                });
+            }
         }
 
         // Check if replacement request channel is configured
@@ -108,16 +154,24 @@ module.exports = {
             const replacementImageEmbed = new EmbedBuilder()
                 .setTitle('REPLACEMENT IMAGE')
                 .setColor(0xFFA500) // Orange
-                .setImage(`attachment://${fileAttachment.name}`)
                 .setFooter({ text: `For Post ID: ${postId}` });
 
-            const replacementImageMessage = await sendMessageSafely(channel, {
-                embeds: [replacementImageEmbed],
-                files: [{
-                    attachment: fileAttachment.url,
-                    name: fileAttachment.name
-                }]
-            });
+            let replacementImageMessage;
+            if (fileAttachment) {
+                replacementImageEmbed.setImage(`attachment://${fileAttachment.name}`);
+                replacementImageMessage = await sendMessageSafely(channel, {
+                    embeds: [replacementImageEmbed],
+                    files: [{
+                        attachment: fileAttachment.url,
+                        name: fileAttachment.name
+                    }]
+                });
+            } else if (imageUrl) {
+                replacementImageEmbed.setImage(imageUrl);
+                replacementImageMessage = await sendMessageSafely(channel, {
+                    embeds: [replacementImageEmbed]
+                });
+            }
 
             await delay(200);
 
@@ -201,7 +255,7 @@ module.exports = {
 
             // Send confirmation to the user
             await editInteractionSafely(interaction, {
-                content: `✅ Your replacement request for post #${postId} has been submitted successfully! The file has been attached to the request message.\n\nPlease be patient as you will receive a message when a Janitor gets to your request.`
+                content: `✅ Your replacement request for post #${postId} has been submitted successfully! The ${fileAttachment ? 'file has been attached' : 'image URL has been included'} in the request message.\n\nPlease be patient as you will receive a message when a Janitor gets to your request.`
             });
 
             // Release lock after successful submission
