@@ -10,7 +10,7 @@ const { DiscordIDs = [] } = config;
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('replace')
-        .setDescription('Replaces an image for a given post ID on e6ai.net.')
+        .setDescription('Replaces an image for a given post ID (JANITOR ONLY)')
         .addStringOption(option =>
             option.setName('post_id')
                 .setDescription('The ID of the post to replace.')

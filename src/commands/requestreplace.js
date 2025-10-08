@@ -11,7 +11,7 @@ const { DiscordIDs = [] } = config;
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('requestreplace')
-        .setDescription('Request a replacement for an e6AI post.')
+        .setDescription('Request a replacement for an e6AI post. (This also works for deleted post and un-approved post too! (10 minute cooldown per use.)')
         .addStringOption(option =>
             option.setName('post_id')
                 .setDescription('The ID of the post to request replacement for.')
